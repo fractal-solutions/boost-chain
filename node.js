@@ -823,6 +823,70 @@ export class Node {
                     
                     if (!response.ok) continue;
                     
+                    const peerChainData = await response.json();
+                    
+                    // Reconstruct the chain with proper Block objects
+                    const reconstructedChain = peerChainData.map(blockData => {
+                        // Reconstruct transactions first
+                        const transactions = blockData.transactions.map(txData => {
+                            const tx = new Transaction(txData.sender, txData.recipient, txData.amount);
+                            tx.timestamp = txData.timestamp;
+                            tx.signature = txData.signature;
+                            return tx;
+                        });
+    
+                        // Create new Block instance
+                        const block = new Block(blockData.index, transactions, blockData.previousHash);
+                        block.timestamp = blockData.timestamp;
+                        block.nonce = blockData.nonce;
+                        block.hash = blockData.hash;
+                        return block;
+                    });
+    
+                    if (reconstructedChain.length > maxHeight && 
+                        this.blockchain.isValidChain(reconstructedChain)) {
+                        longestChain = reconstructedChain;
+                        maxHeight = reconstructedChain.length;
+                        console.log(`Node ${this.port}: Found longer valid chain (${maxHeight} blocks)`);
+                    }
+                } catch (error) {
+                    console.error(`Node ${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
+                }
+            }
+    
+            // Update our chain if we found a longer valid chain
+            if (maxHeight > this.blockchain.chain.length) {
+                this.blockchain.chain = longestChain;
+                console.log(`Node ${this.port}: Updated chain to height ${maxHeight}`);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error(`Node ${this.port}: Sync error:`, error.message);
+            return false;
+        }
+    }
+
+    async syncWithPeersX() {
+        if (this.peers.size === 0) return;
+        
+        try {
+            let longestChain = this.blockchain.chain;
+            let maxHeight = longestChain.length;
+    
+            // Get all peer chains
+            for (const [peerAddress] of this.peers) {
+                try {
+                    console.log(`Node ${this.port}: Syncing with peer ${peerAddress}`);
+                    const response = await fetch(`http://${peerAddress}/chain`, {
+                        headers: { 
+                            'x-auth-token': process.env.NETWORK_SECRET,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) continue;
+                    
                     const peerChain = await response.json();
                     if (peerChain.length > maxHeight && this.blockchain.isValidChain(peerChain)) {
                         longestChain = peerChain;

@@ -29,7 +29,7 @@ async function displayChainState(nodePort, message) {
         const chain = await response.json();
         console.log('Received chain type:', typeof chain);
         console.log('Is array?', Array.isArray(chain));
-        console.log('Chain structure:', JSON.stringify(chain, null, 2));
+        //console.log('Chain structure:', JSON.stringify(chain, null, 2));
         
         if (!Array.isArray(chain)) {
             console.error('Chain is not an array. Converting...');
@@ -210,7 +210,7 @@ async function main() {
         { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice' },
         { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob' },
         { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has' },
-        { from: bob, to: alice, amount: 125, message: 'Bob sends 125 to Alice' },
+        { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice' },
         { from: charlie, to: bob, amount: 175, message: 'Charlie sends 175 to Bob' },
         { from: dave, to: charlie, amount: 100, message: 'Dave sends 100 to Charlie' },
         { from: alice, to: charlie, amount: 150, message: 'Alice sends 150 to Charlie' },
@@ -220,7 +220,9 @@ async function main() {
 // Execute each transaction
 for (const tx of transactions) {
     console.log(`\nExecuting transaction: ${tx.message}`);
-    const result = await sendTransaction(tx.from, tx.to, tx.amount, 3001);
+    const ports = [3001, 3002, 3003, 3004];
+    const randomPort = ports[Math.floor(Math.random() * ports.length)];
+    const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort);
     
     if (result.error) {
         console.log(`Transaction failed: ${result.error}`);
