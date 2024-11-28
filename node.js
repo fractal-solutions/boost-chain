@@ -273,7 +273,7 @@ export class Node {
         }
     }
 
-    // Add handshake endpoint to server setup
+    // Server Setup
     async setupServer() {
         return new Promise((resolve) => {
             Bun.serve({

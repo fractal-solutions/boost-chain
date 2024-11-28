@@ -1,7 +1,7 @@
 # Boost Protocol
 
 ## Overview
-Boost Protocol is a blockchain-based lending platform that connects Small and Medium Enterprises (SMEs) with investors through a decentralized credit and investment system. The protocol enables SMEs to build credit history through their transaction patterns while providing investors with fixed-return investment opportunities.
+Boost Protocol is a blockchain-based lending platform protocol that connects Small and Medium Enterprises (SMEs) with investors through a decentralized credit and investment system. The protocol enables SMEs to build credit history through their transaction patterns while providing investors with fixed-return investment opportunities.
 
 ## Core Components
 
