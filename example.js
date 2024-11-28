@@ -21,16 +21,43 @@ process.env.NETWORK_SECRET = 'test-secret-123';
 
 async function displayChainState(nodePort, message) {
     console.log(`\n${message}`);
-    const chain = await fetch(`http://localhost:${nodePort}/chain`, {
-        headers: { 'x-auth-token': process.env.NETWORK_SECRET }
-    }).then(res => res.json());
-    
-    console.log('Current Blockchain State:');
-    chain.forEach((block, index) => {
-        console.log(`\nBlock ${index}:`);
-        console.log('Transactions:', block.transactions);
-        console.log('Hash:', block.hash.substring(0, 10) + '...');
-    });
+    try {
+        const response = await fetch(`http://localhost:${nodePort}/chain`, {
+            headers: { 'x-auth-token': process.env.NETWORK_SECRET }
+        });
+        
+        const chain = await response.json();
+        console.log('Received chain type:', typeof chain);
+        console.log('Is array?', Array.isArray(chain));
+        console.log('Chain structure:', JSON.stringify(chain, null, 2));
+        
+        if (!Array.isArray(chain)) {
+            console.error('Chain is not an array. Converting...');
+            const chainArray = Object.values(chain);
+            if (!Array.isArray(chainArray)) {
+                throw new Error('Unable to convert chain to array');
+            }
+            
+            chainArray.forEach((block, index) => {
+                console.log(`\nBlock ${index}:`);
+                console.log('Transactions:', block.transactions);
+                console.log('Hash:', block.hash.substring(0, 10) + '...');
+            });
+        } else {
+            chain.forEach((block, index) => {
+                console.log(`\nBlock ${index}:`);
+                console.log('Transactions:', block.transactions);
+                console.log('Hash:', block.hash.substring(0, 10) + '...');
+            });
+        }
+    } catch (error) {
+        console.error('Error displaying chain state:', error);
+        console.error('Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+    }
 }
 
 async function checkAllBalances(nodePort) {
@@ -74,6 +101,8 @@ async function sendTransaction(from, to, amount, nodePort) {
             })
         });
 
+        const result = await txResponse.json();
+
         if (!txResponse.ok) {
             const error = await txResponse.json();
             throw new Error(`Transaction failed: ${error.error}`);
@@ -82,10 +111,15 @@ async function sendTransaction(from, to, amount, nodePort) {
         // Wait for mining and synchronization
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        console.log(`Transaction successful: ${amount} tokens sent from ${from.publicKey.substring(0, 10)}... to ${to.publicKey.substring(0, 10)}...`);
+        // Format the addresses for readable output
+        const formattedFrom = formatAddress(from.publicKey);
+        const formattedTo = formatAddress(to.publicKey);
+
+        console.log(`Transaction successful: ${amount} tokens sent from ${formattedFrom} to ${formattedTo}`);
+        return result;
     } catch (error) {
         console.error('Transaction error:', error.message);
-        throw error;
+        return { error: error.message };
     }
 }
 
@@ -117,6 +151,17 @@ async function checkNodesHealth(nodes) {
             console.log(`Node ${i + 1} (port ${port}): OFFLINE or ERROR`);
         }
     }
+}
+
+function formatAddress(publicKey) {
+    // Skip the header/footer and get just the key portion
+    const cleanKey = publicKey
+        .replace('-----BEGIN PUBLIC KEY-----\n', '')
+        .replace('\n-----END PUBLIC KEY-----', '')
+        .trim();
+    
+    // Take first 8 characters for a readable preview
+    return cleanKey.substring(0, 8) + '...';
 }
 
 async function main() {
@@ -159,19 +204,41 @@ async function main() {
         { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob' },
         { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie' },
         { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave' },
-        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice' }
+        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice' },
+        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie' },
+        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave' },
+        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice' },
+        { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob' },
+        { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has' },
+        { from: bob, to: alice, amount: 125, message: 'Bob sends 125 to Alice' },
+        { from: charlie, to: bob, amount: 175, message: 'Charlie sends 175 to Bob' },
+        { from: dave, to: charlie, amount: 100, message: 'Dave sends 100 to Charlie' },
+        { from: alice, to: charlie, amount: 150, message: 'Alice sends 150 to Charlie' },
+        { from: bob, to: dave, amount: 200, message: 'Bob sends 200 to Dave' }
     ];
 
-    // Execute each transaction
-    for (const tx of transactions) {
-        console.log(`\nExecuting transaction: ${tx.message}`);
-        await sendTransaction(tx.from, tx.to, tx.amount, 3001);
-        await displayChainState(3001, 'Updated blockchain state:');
-        await checkAllBalances(3001);
-        
-        // Wait a bit between transactions
-        await new Promise(resolve => setTimeout(resolve, 1000));
+// Execute each transaction
+for (const tx of transactions) {
+    console.log(`\nExecuting transaction: ${tx.message}`);
+    const result = await sendTransaction(tx.from, tx.to, tx.amount, 3001);
+    
+    if (result.error) {
+        console.log(`Transaction failed: ${result.error}`);
+        if (result.balance !== undefined) {
+            console.log(`Available balance: ${result.balance}, Attempted: ${result.attempted}`);
+        }
+    } else {
+        console.log('Transaction successful');
     }
+    
+    await new Promise(resolve => setTimeout(resolve, 2000));
+        await displayChainState(3001, 'Updated blockchain state:');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+        await checkAllBalances(3001);
+    
+    // Wait a bit between transactions regardless of success/failure
+    await new Promise(resolve => setTimeout(resolve, 1000));
+}
 
     const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
     await checkNodesHealth(nodes);

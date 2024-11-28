@@ -11,6 +11,9 @@ export class Node {
         this.rateLimit = new Map(); 
         this.nodeId = randomBytes(32).toString('hex');
         this.maxPeers = options.maxPeers || 10;
+        // Increase rate limit window and max requests
+        this.rateLimitWindow = 60000; // 1 minute window
+        this.maxRequestsPerWindow = 100; // Allow more requests per window
         
         // Initialize blockchain with genesis block
         if (options.genesisBalances) {
@@ -368,32 +371,61 @@ export class Node {
             );
             transaction.timestamp = data.timestamp || Date.now();
             transaction.signature = data.signature;
-
-            // Validate transaction
-            if (!transaction.isValid()) {
-                throw new Error("Invalid transaction signature");
+    
+            // Validate and add transaction
+            try {
+                // Validate transaction
+                if (!transaction.isValid()) {
+                    return new Response(JSON.stringify({ 
+                        error: "Invalid transaction signature",
+                        status: "rejected"
+                    }), {
+                        status: 400,
+                        headers: { "Content-Type": "application/json" }
+                    });
+                }
+    
+                // Check balance
+                const senderBalance = this.blockchain.getBalance(transaction.sender);
+                if (senderBalance < transaction.amount) {
+                    return new Response(JSON.stringify({ 
+                        error: "Insufficient balance",
+                        status: "rejected",
+                        balance: senderBalance,
+                        attempted: transaction.amount
+                    }), {
+                        status: 400,
+                        headers: { "Content-Type": "application/json" }
+                    });
+                }
+    
+                // Add to blockchain's pending transactions
+                this.blockchain.addTransaction(transaction);
+                
+                // Trigger mining check
+                this.mineIfNeeded();
+    
+                return new Response(JSON.stringify({ 
+                    message: "Transaction added successfully",
+                    status: "accepted",
+                    transaction: transaction
+                }), {
+                    headers: { "Content-Type": "application/json" }
+                });
+            } catch (error) {
+                return new Response(JSON.stringify({ 
+                    error: error.message,
+                    status: "rejected"
+                }), {
+                    status: 400,
+                    headers: { "Content-Type": "application/json" }
+                });
             }
-
-            // Check balance
-            const senderBalance = this.blockchain.getBalance(transaction.sender);
-            if (senderBalance < transaction.amount) {
-                throw new Error("Insufficient balance");
-            }
-
-            // Add to blockchain's pending transactions
-            this.blockchain.addTransaction(transaction);
-            
-            // Trigger mining check
-            this.mineIfNeeded();
-
-            return new Response(JSON.stringify({ 
-                message: "Transaction added successfully",
-                transaction: transaction
-            }), {
-                headers: { "Content-Type": "application/json" }
-            });
         } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
+            return new Response(JSON.stringify({ 
+                error: "Invalid request format",
+                status: "rejected"
+            }), {
                 status: 400,
                 headers: { "Content-Type": "application/json" }
             });
@@ -591,8 +623,8 @@ export class Node {
     async checkRateLimit(req) {
         const ip = req.headers.get('x-forwarded-for') || 'localhost';
         const now = Date.now();
-        const windowMs = 60000; // 1 minute
-        const maxRequests = 100;
+        const windowMs = this.rateLimitWindow; // 1 minute
+        const maxRequests = this.maxRequestsPerWindow;
 
         if (!this.rateLimit.has(ip)) {
             this.rateLimit.set(ip, {
@@ -831,4 +863,6 @@ export class Node {
             }
         }
     }
+
+
 } 
