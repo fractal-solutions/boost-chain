@@ -44,21 +44,19 @@ export class Blockchain {
         // Create mining reward transaction
         const rewardTx = new Transaction(null, minerAddress, this.miningReward);
         
-        // Create new block with current pending transactions
+        // Create new block with proper index
         const block = new Block(
-            Date.now(),
-            [...this.pendingTransactions, rewardTx], // Include all pending transactions plus reward
+            this.chain.length, // Use chain length as index instead of Date.now()
+            [...this.pendingTransactions, rewardTx],
             this.getLatestBlock().hash
         );
-
+    
         // Mine the block
         block.mineBlock(this.difficulty);
         
-        // Add block to chain BEFORE clearing pending transactions
         console.log('Block mined:', block.hash);
         this.chain.push(block);
-
-        // Clear pending transactions AFTER successful mining
+    
         this.pendingTransactions = [];
         
         return block;
@@ -104,26 +102,63 @@ export class Blockchain {
 
     isValidBlock(block) {
         try {
+            // Convert plain object to Block instance if needed
+            const blockInstance = block instanceof Block ? block : new Block(
+                block.index,
+                block.transactions.map(tx => new Transaction(tx.sender, tx.recipient, tx.amount, tx.timestamp, tx.signature)),
+                block.previousHash,
+                block.timestamp,
+                block.nonce
+            );
+    
+            // Check block index
+            if (blockInstance.index !== this.chain.length) {
+                console.log(`Invalid block index. Expected ${this.chain.length}, got ${blockInstance.index}`);
+                return false;
+            }
+    
             // Check if block connects to our chain
             const latestBlock = this.getLatestBlock();
-            if (block.previousHash !== latestBlock.hash) {
+            if (blockInstance.previousHash !== latestBlock.hash) {
                 console.log('Block does not connect to latest block');
                 return false;
             }
     
-            // Verify block hash
-            if (block.hash !== block.calculateHash()) {
-                console.log('Block hash is invalid');
+            // Verify proof of work
+            const hashStartsWithZeros = blockInstance.hash.substring(0, this.difficulty) === '0'.repeat(this.difficulty);
+
+            console.log('Block validation details:', {
+                hash: blockInstance.hash,
+                difficulty: this.difficulty,
+                requiredPrefix: '0'.repeat(this.difficulty),
+                actualPrefix: blockInstance.hash.substring(0, this.difficulty),
+                meetsRequirement: hashStartsWithZeros
+            });
+            
+            if (!hashStartsWithZeros) {
+                console.log('Block does not meet difficulty requirement');
+                return false;
+            }
+    
+            // Verify block hash matches its contents
+            const calculatedHash = blockInstance.calculateHash();
+            if (block.hash !== calculatedHash) {
+                console.log('Block hash mismatch:', {
+                    received: block.hash.substring(0, 10),
+                    calculated: calculatedHash.substring(0, 10)
+                });
                 return false;
             }
     
             // Verify all transactions in the block
-            for (const transaction of block.transactions) {
+            for (const transaction of blockInstance.transactions) {
                 if (!transaction.isValid() && transaction.sender !== null) {
                     console.log('Transaction validation failed');
                     return false;
                 }
             }
+
+           
     
             return true;
         } catch (error) {

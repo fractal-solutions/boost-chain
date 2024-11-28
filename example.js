@@ -1,4 +1,4 @@
-import { Node } from "./node.js";
+import { Node, NodeType } from "./node.js";
 import { Transaction } from "./transaction.js";
 import crypto from "crypto";
 
@@ -176,21 +176,56 @@ async function main() {
     // Start nodes sequentially
     console.log('Starting nodes...');
     
-    // Start main node first
-    const mainNode = await new Node(3001, [], { genesisBalances }).initialize();
-    console.log('Main node started on port 3001');
+
+    // Start controller node first
+    const controllerNode = await new Node(3001, [], {
+        nodeType: NodeType.CONTROLLER,
+        genesisBalances
+    }).initialize();
+    console.log('Controller node started on port 3001');
+    // // Start main node first
+    // const mainNode = await new Node(3001, [], { genesisBalances }).initialize();
+    // console.log('Main node started on port 3001');
+    
     
     // Wait for main node to be ready
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Start other nodes
-    const otherNodes = await Promise.all([
-        new Node(3002, ['localhost:3001'], { genesisBalances }).initialize(),
-        new Node(3003, ['localhost:3001'], { genesisBalances }).initialize(),
-        new Node(3004, ['localhost:3001'], { genesisBalances }).initialize()
+ 
+    // Start SME nodes
+    const smeNodes = await Promise.all([
+        new Node(3002, ['localhost:3001'], {
+            nodeType: NodeType.SME,
+            genesisBalances,
+            businessInfo: {
+                    name: "SME_1",
+                    industry: "Retail",
+                    established: "2020"
+            }
+        }).initialize(),
+        new Node(3003, ['localhost:3001'], {
+            nodeType: NodeType.SME,
+            genesisBalances,
+            businessInfo: {
+                name: "SME_2",
+                    industry: "Services",
+                    established: "2019"
+            }
+        }).initialize()
     ]);
+
+    // Start validator node
+    const validatorNode = await new Node(3004, ['localhost:3001'], {
+        nodeType: NodeType.VALIDATOR,
+        genesisBalances
+    }).initialize();
+    // Start other nodes
+    // const otherNodes = await Promise.all([
+    //     new Node(3002, ['localhost:3001'], { genesisBalances }).initialize(),
+    //     new Node(3003, ['localhost:3001'], { genesisBalances }).initialize(),
+    //     new Node(3004, ['localhost:3001'], { genesisBalances }).initialize()
+    // ]);
     
-    const nodes = [mainNode, ...otherNodes];
+    const nodes = [controllerNode, ...smeNodes, validatorNode];
     
     // Wait for all nodes to connect
     await new Promise(resolve => setTimeout(resolve, 2000));

@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 
 export class Block {
     constructor(index, transactions, previousHash) {
-        this.index = index;
+        this.index = typeof index === 'number' ? index : this.chain?.length || 0;  // Ensure index is a number
         this.timestamp = Date.now();
         this.transactions = transactions;
         this.previousHash = previousHash;

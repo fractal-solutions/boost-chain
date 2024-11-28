@@ -3,6 +3,12 @@ import { Block } from "./block.js";
 import { Transaction } from "./transaction.js";
 import { createHash, randomBytes } from 'crypto';
 
+export const NodeType = {
+    CONTROLLER: 'controller',
+    SME: 'sme',
+    VALIDATOR: 'validator'
+};
+
 export class Node {
     constructor(port, seedNodes = [], options = {}) {
         this.port = port;
@@ -11,9 +17,26 @@ export class Node {
         this.rateLimit = new Map(); 
         this.nodeId = randomBytes(32).toString('hex');
         this.maxPeers = options.maxPeers || 10;
+
         // Increase rate limit window and max requests
         this.rateLimitWindow = 60000; // 1 minute window
         this.maxRequestsPerWindow = 100; // Allow more requests per window
+
+        this.nodeType = options.nodeType || NodeType.VALIDATOR; // Default to validator
+        this.nodeId = randomBytes(32).toString('hex');
+        this.permissions = this.initializePermissions();
+
+        // Controller-Node specific properties
+        this.tokenMintingEnabled = this.nodeType === NodeType.CONTROLLER;
+        this.insurancePool = this.nodeType === NodeType.CONTROLLER ? new Map() : null;
+
+        // SME-Node specific properties
+        this.businessMetrics = this.nodeType === NodeType.SME ? {
+            transactionVolume: 0,
+            customerCount: new Set(),
+            paymentHistory: [],
+            lastActivity: Date.now()
+        } : null;
         
         // Initialize blockchain with genesis block
         if (options.genesisBalances) {
@@ -59,6 +82,28 @@ export class Node {
 
         return this;
        
+    }
+
+    initializePermissions() {
+        switch(this.nodeType) {
+            case NodeType.CONTROLLER:
+                return {
+                    canMintTokens: true,
+                    canManageLoans: true,
+                    canManageInsurance: true,
+                    canValidate: true
+                };
+            case NodeType.SME:
+                return {
+                    canProcessPayments: true,
+                    canRequestLoans: true,
+                    canValidate: false
+                };
+            default:
+                return {
+                    canValidate: true
+                };
+        }
     }
 
     async registerWithSeedNodes() {
@@ -246,7 +291,7 @@ export class Node {
                             case req.method === "POST" && url.pathname === "/transaction":
                                 return await this.handleTransaction(req);
                             case req.method === "POST" && url.pathname === "/block":
-                                return await this.handleBlock(req);
+                                return await this.handleNewBlock(req);
                             case req.method === "POST" && url.pathname === "/new-peer":
                                 return await this.handleNewPeer(req);
                             case req.method === "GET" && url.pathname === "/peers":
@@ -472,6 +517,44 @@ export class Node {
         }
     }
 
+    async handleNewBlock(request) {
+        try {
+            const newBlock = await request.json();
+            console.log(`Node ${this.port}: Received new block with hash ${newBlock.hash}`);
+            
+            // Add check for block height
+            if (newBlock.index !== this.blockchain.chain.length) {
+                console.log(`Node ${this.port}: Block height mismatch. Expected ${this.blockchain.chain.length}, got ${newBlock.index}`);
+                await this.syncWithPeer(request.headers.get('x-forwarded-host') || 'localhost:3001');
+            }
+    
+            // Add additional validation
+            const latestBlock = this.blockchain.getLatestBlock();
+            if (newBlock.previousHash !== latestBlock.hash) {
+                console.log(`Node ${this.port}: Block doesn't connect. Expected previous hash ${latestBlock.hash}, got ${newBlock.previousHash}`);
+                await this.syncWithPeer(request.headers.get('x-forwarded-host') || 'localhost:3001');
+                // Try adding the block again after sync
+                if (this.blockchain.isValidBlock(newBlock)) {
+                    this.blockchain.chain.push(newBlock);
+                    console.log(`Node ${this.port}: Added new block ${newBlock.hash.substring(0, 10)} after sync. Chain height: ${this.blockchain.chain.length}`);
+                    return new Response(JSON.stringify({ message: "Block added successfully" }));
+                }
+            }
+    
+            if (this.blockchain.isValidBlock(newBlock)) {
+                this.blockchain.chain.push(newBlock);
+                console.log(`Node ${this.port}: Added new block ${newBlock.hash.substring(0, 10)}. Chain height: ${this.blockchain.chain.length}`);
+                return new Response(JSON.stringify({ message: "Block added successfully" }));
+            } else {
+                //throw new Error("Invalid block after sync");
+                return new Response(JSON.stringify({ error: "Invalid block after sync" }), { status: 400 });
+            }
+        } catch (error) {
+            console.error(`Node ${this.port}: Error handling block:`, error);
+            return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+        }
+    }
+
     // Helper method to reconstruct chain with proper objects
     reconstructChain(chainData) {
         return chainData.map(blockData => {
@@ -492,17 +575,23 @@ export class Node {
 
     reconstructBlock(blockData) {
         try {
-            // Reconstruct transactions
+            // Reconstruct transactions exactly as they were
             const transactions = blockData.transactions.map(txData => {
                 const tx = new Transaction(txData.sender, txData.recipient, txData.amount);
-                tx.timestamp = txData.timestamp;
-                tx.signature = txData.signature;
+                tx.timestamp = txData.timestamp; // Use original timestamp
+                tx.signature = txData.signature; // Use original signature
                 return tx;
             });
     
-            // Create new block
-            const block = new Block(blockData.index, transactions, blockData.previousHash);
-            block.timestamp = blockData.timestamp;
+            // Create new block with original values
+            const block = new Block(
+                blockData.index,
+                transactions,
+                blockData.previousHash,
+                blockData.timestamp  // Use original timestamp
+            );
+            
+            // Important: Set these values from the original block
             block.nonce = blockData.nonce;
             block.hash = blockData.hash;
             
@@ -926,6 +1015,78 @@ export class Node {
                 console.error(`Node ${this.port}: Mining failed:`, error);
             }
         }
+    }
+
+    // Controller-Node specific methods
+    async handleMintTokens(req) {
+        if (this.nodeType !== NodeType.CONTROLLER) {
+            return new Response(JSON.stringify({ error: "Unauthorized: Not a controller node" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        const { address, amount } = await req.json();
+        // Implement minting logic
+    }
+
+    async handleLoanRequest(req) {
+        if (this.nodeType !== NodeType.CONTROLLER) {
+            return new Response(JSON.stringify({ error: "Unauthorized: Not a controller node" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        const { smeAddress, amount, terms } = await req.json();
+        // Implement loan processing logic
+    }
+
+    async handleInsurancePool(req) {
+        if (this.nodeType !== NodeType.CONTROLLER) {
+            return new Response(JSON.stringify({ error: "Unauthorized: Not a controller node" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // Implement insurance pool management
+    }
+
+    // SME-Node specific methods
+    async handleCustomerPayment(req) {
+        if (this.nodeType !== NodeType.SME) {
+            return new Response(JSON.stringify({ error: "Unauthorized: Not an SME node" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        const { customerId, amount } = await req.json();
+        this.businessMetrics.customerCount.add(customerId);
+        this.businessMetrics.transactionVolume += amount;
+        this.businessMetrics.paymentHistory.push({
+            timestamp: Date.now(),
+            amount,
+            customerId
+        });
+        
+        // Process payment through blockchain
+    }
+
+    async getCreditScore() {
+        if (this.nodeType !== NodeType.SME) {
+            return new Response(JSON.stringify({ error: "Unauthorized: Not an SME node" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // Calculate credit score based on businessMetrics
+        const score = this.calculateCreditScore();
+        return new Response(JSON.stringify({ score }), {
+            headers: { "Content-Type": "application/json" }
+        });
     }
 
 
