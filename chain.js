@@ -8,7 +8,7 @@ export class Blockchain {
         this.chain = [this.createGenesisBlock(genesisTransactions)];
         this.pendingTransactions = [];
         this.difficulty = 2;
-        this.miningReward = 0; // Define mining reward
+        this.miningReward = 0.01; // Define mining reward
     }
 
     createGenesisBlock(transactions = []) {
@@ -41,13 +41,12 @@ export class Blockchain {
     }
 
     minePendingTransactions(minerAddress) {
-        // Create mining reward transaction
-        const rewardTx = new Transaction(null, minerAddress, this.miningReward);
+        //const rewardTx = new Transaction(null, minerAddress, this.miningReward);
         
         // Create new block with proper index
         const block = new Block(
             this.chain.length, // Use chain length as index instead of Date.now()
-            [...this.pendingTransactions, rewardTx],
+            [...this.pendingTransactions],
             this.getLatestBlock().hash
         );
     
@@ -134,7 +133,7 @@ export class Blockchain {
                 actualPrefix: blockInstance.hash.substring(0, this.difficulty),
                 meetsRequirement: hashStartsWithZeros
             });
-            
+
             if (!hashStartsWithZeros) {
                 console.log('Block does not meet difficulty requirement');
                 return false;

@@ -1,15 +1,8 @@
-import { Node, NodeType } from "./node.js";
+import { Node, NodeType, generateKeyPair } from "./node.js";
 import { Transaction } from "./transaction.js";
-import crypto from "crypto";
+import { createHmac, randomBytes } from "crypto";
 
-// Generate test key pairs
-function generateKeyPair() {
-    return crypto.generateKeyPairSync('rsa', {
-        modulusLength: 2048,
-        publicKeyEncoding: { type: 'spki', format: 'pem' },
-        privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
-    });
-}
+
 
 // Create test accounts
 const alice = generateKeyPair();
@@ -79,26 +72,73 @@ async function checkAllBalances(nodePort) {
     }
 }
 
-async function sendTransaction(from, to, amount, nodePort) {
+async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION") {
     try {
-        // Create and sign transaction
-        const transaction = new Transaction(from.publicKey, to.publicKey, amount);
-        transaction.signTransaction(from.privateKey);
+        let txData;
         
-        // Send transaction
-        const txResponse = await fetch(`http://localhost:${nodePort}/transaction`, {
+        if (type === "DEPOSIT") {
+            const timestamp = Date.now();
+            const nonce = randomBytes(16).toString('hex');
+            
+            // Create authorization signature
+            const message = `${to.publicKey}:${amount}:${timestamp}:${nonce}`;
+            const authorization = createHmac('sha256', process.env.NETWORK_SECRET)
+                .update(message)
+                .digest('hex');
+
+            txData = {
+                sender: null,
+                recipient: to.publicKey,
+                amount: amount,
+                timestamp: timestamp,
+                nonce: nonce,
+                authorization: authorization,
+                type: "DEPOSIT"
+            };
+        } else if (type === "WITHDRAW") {
+            const timestamp = Date.now();
+            const nonce = randomBytes(16).toString('hex');
+
+            // Create authorization signature
+            const message = `${from.publicKey}:${amount}:${timestamp}:${nonce}`;
+            const authorization = createHmac('sha256', process.env.NETWORK_SECRET)
+                .update(message)
+                .digest('hex');
+
+            txData = {
+                sender: from.publicKey,
+                recipient: null,  // Null recipient for withdrawals
+                amount: amount,
+                timestamp: timestamp,
+                nonce: nonce,
+                authorization: authorization,
+                type: "WITHDRAW"
+            };
+        } else {
+            // Regular transaction needs signing
+            const transaction = new Transaction(from.publicKey, to.publicKey, amount);
+            transaction.signTransaction(from.privateKey);
+            
+            txData = {
+                sender: from.publicKey,
+                recipient: to.publicKey,
+                amount: amount,
+                timestamp: transaction.timestamp,
+                signature: transaction.signature,
+                type: "TRANSFER"
+            };
+        }
+
+        // Always send deposits and withdrawals to controller node (3001)
+        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" ? 3001 : nodePort;
+        
+        const txResponse = await fetch(`http://localhost:${targetPort}/transaction`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'x-auth-token': process.env.NETWORK_SECRET
             },
-            body: JSON.stringify({
-                sender: from.publicKey,
-                recipient: to.publicKey,
-                amount: amount,
-                timestamp: transaction.timestamp,
-                signature: transaction.signature
-            })
+            body: JSON.stringify(txData)
         });
 
         const result = await txResponse.json();
@@ -111,11 +151,8 @@ async function sendTransaction(from, to, amount, nodePort) {
         // Wait for mining and synchronization
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Format the addresses for readable output
-        const formattedFrom = formatAddress(from.publicKey);
-        const formattedTo = formatAddress(to.publicKey);
-
-        console.log(`Transaction successful: ${amount} tokens sent from ${formattedFrom} to ${formattedTo}`);
+        const fromAddress = from ? formatAddress(from.publicKey) : 'DEPOSIT';
+        console.log(`Transaction successful: ${amount} tokens ${type === "WITHDRAW" ? "withdrawn from" : "sent from"} ${formatAddress(from.publicKey)}`);
         return result;
     } catch (error) {
         console.error('Transaction error:', error.message);
@@ -236,20 +273,21 @@ async function main() {
 
     // Series of transactions
     const transactions = [
-        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob' },
-        { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie' },
-        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave' },
-        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice' },
-        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie' },
-        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave' },
-        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice' },
-        { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob' },
-        { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has' },
-        { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice' },
-        { from: charlie, to: bob, amount: 175, message: 'Charlie sends 175 to Bob' },
-        { from: dave, to: charlie, amount: 100, message: 'Dave sends 100 to Charlie' },
-        { from: alice, to: charlie, amount: 150, message: 'Alice sends 150 to Charlie' },
-        { from: bob, to: dave, amount: 200, message: 'Bob sends 200 to Dave' }
+        { from: null, to: alice, amount: 1000, message: 'Controller node deposits 1000 to Alice', type: "DEPOSIT" },
+        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" },
+        { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
+        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
+        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSACTION" },
+        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSACTION" },
+        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSACTION" },
+        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSACTION" },
+        { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob', type: "TRANSACTION"  },
+        { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has', type: "TRANSACTION" },
+        { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice', type: "TRANSACTION" },
+        { from: charlie, to: bob, amount: 175, message: 'Charlie sends 175 to Bob', type: "TRANSACTION" },
+        { from: dave, to: charlie, amount: 100, message: 'Dave sends 100 to Charlie', type: "TRANSACTION" },
+        { from: alice, to: charlie, amount: 150, message: 'Alice sends 150 to Charlie', type: "TRANSACTION" },
+        { from: bob, to: dave, amount: 200, message: 'Bob sends 200 to Dave', type: "TRANSACTION" }
     ];
 
 // Execute each transaction
@@ -257,7 +295,7 @@ for (const tx of transactions) {
     console.log(`\nExecuting transaction: ${tx.message}`);
     const ports = [3001, 3002, 3003, 3004];
     const randomPort = ports[Math.floor(Math.random() * ports.length)];
-    const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort);
+    const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort, tx.type);
     
     if (result.error) {
         console.log(`Transaction failed: ${result.error}`);
@@ -275,6 +313,15 @@ for (const tx of transactions) {
     
     // Wait a bit between transactions regardless of success/failure
     await new Promise(resolve => setTimeout(resolve, 1000));
+        // Check mining rewards
+        console.log('\nNode Balances:');
+        for (const port of [3001, 3002, 3003, 3004]) {
+            const node = nodes[port - 3001];
+            const balance = await fetch(`http://localhost:${port}/balance?address=${encodeURIComponent(node.wallet.publicKey)}`,
+                { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+            ).then(res => res.json()).then(data => data.balance);
+            console.log(`Node ${port}: ${balance} tokens (from mining)`);
+        }
 }
 
     const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute

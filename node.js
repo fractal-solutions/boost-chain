@@ -1,13 +1,22 @@
 import { Blockchain } from "./chain.js";
 import { Block } from "./block.js";
 import { Transaction } from "./transaction.js";
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, generateKeyPairSync, createHmac } from 'crypto';
 
 export const NodeType = {
     CONTROLLER: 'controller',
     SME: 'sme',
     VALIDATOR: 'validator'
 };
+
+// Generate test key pairs
+export function generateKeyPair() {
+    return generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+    });
+}
 
 export class Node {
     constructor(port, seedNodes = [], options = {}) {
@@ -17,6 +26,8 @@ export class Node {
         this.rateLimit = new Map(); 
         this.nodeId = randomBytes(32).toString('hex');
         this.maxPeers = options.maxPeers || 10;
+
+        this.wallet = options.wallet || generateKeyPair();
 
         // Increase rate limit window and max requests
         this.rateLimitWindow = 60000; // 1 minute window
@@ -29,6 +40,17 @@ export class Node {
         // Controller-Node specific properties
         this.tokenMintingEnabled = this.nodeType === NodeType.CONTROLLER;
         this.insurancePool = this.nodeType === NodeType.CONTROLLER ? new Map() : null;
+        // Controller-specific security
+        this.depositSecret = options.networkSecret || process.env.NETWORK_SECRET;
+        this.depositNonce = new Map(); // Track used nonces
+        this.depositTimeWindow = 5 * 60 * 1000; // 5 minutes
+        
+        // Add rate limiting specifically for deposits
+        this.depositRateLimit = {
+            window: 3600000, // 1 hour
+            maxDeposits: 100,
+            deposits: new Map() // Track deposits per address
+        };
 
         // SME-Node specific properties
         this.businessMetrics = this.nodeType === NodeType.SME ? {
@@ -407,6 +429,131 @@ export class Node {
     async handleTransaction(req) {
         try {
             const data = await req.json();
+
+            // Validate transaction type and permissions
+            // Special handling for deposits through controller node
+            if (data.type === 'DEPOSIT') {
+                // 1. Verify node type
+                if (this.nodeType !== NodeType.CONTROLLER) {
+                    return new Response(JSON.stringify({
+                        error: 'Unauthorized: Not a controller node'
+                    }), { status: 403 });
+                }
+
+                // 2. Verify deposit authorization
+                if (!this.verifyDepositAuthorization(data)) {
+                    return new Response(JSON.stringify({
+                        error: 'Invalid deposit authorization'
+                    }), { status: 401 });
+                }
+
+                // 3. Check rate limits
+                if (!this.checkDepositRateLimit(data.recipient, data.amount)) {
+                    return new Response(JSON.stringify({
+                        error: 'Deposit rate limit exceeded'
+                    }), { status: 429 });
+                }
+
+                // 4. Verify nonce hasn't been used
+                if (this.depositNonce.has(data.nonce)) {
+                    return new Response(JSON.stringify({
+                        error: 'Duplicate deposit nonce'
+                    }), { status: 400 });
+                }
+
+                // 5. Store nonce with timestamp
+                this.depositNonce.set(data.nonce, Date.now());
+
+                // Create and process deposit transaction
+                const transaction = new Transaction(null, data.recipient, data.amount);
+                transaction.timestamp = data.timestamp || Date.now();
+                transaction.depositAuth = data.authorization;
+                
+                this.blockchain.addTransaction(transaction);
+                this.mineIfNeeded();
+
+                // Update rate limiting
+                this.updateDepositRateLimit(data.recipient, data.amount);
+
+                return new Response(JSON.stringify({ 
+                    message: "Deposit processed successfully",
+                    status: "accepted",
+                    transaction: transaction
+                }));
+            }
+
+            // Handle withdrawals
+            if (data.type === 'WITHDRAW') {
+                // 1. Verify node type
+                if (this.nodeType !== NodeType.CONTROLLER) {
+                    return new Response(JSON.stringify({
+                        error: 'Unauthorized: Not a controller node'
+                    }), { status: 403 });
+                }
+
+                // 2. Verify withdrawal authorization
+                if (!this.verifyWithdrawalAuthorization(data)) {
+                    return new Response(JSON.stringify({
+                        error: 'Invalid withdrawal authorization'
+                    }), { status: 401 });
+                }
+
+                // 3. Double check balance (important!)
+                const senderBalance = this.blockchain.getBalance(data.sender);
+                if (senderBalance < data.amount) {
+                    return new Response(JSON.stringify({
+                        error: 'Insufficient balance for withdrawal',
+                        balance: senderBalance,
+                        attempted: data.amount
+                    }), { status: 400 });
+                }
+
+                // 4. Create withdrawal transaction with proper signature
+                const transaction = new Transaction(
+                    data.sender,
+                    null,  // Null recipient for withdrawals
+                    data.amount
+                );
+                transaction.timestamp = data.timestamp;
+                transaction.signature = data.signature;
+                transaction.type = "WITHDRAW";  // Mark as withdrawal
+
+                // 5. Add to blockchain's pending transactions
+                this.blockchain.addTransaction(transaction);
+                this.mineIfNeeded();
+
+                return new Response(JSON.stringify({
+                    message: "Withdrawal processed successfully",
+                    status: "accepted",
+                    transaction: transaction
+                }));
+            }
+
+            // For SME nodes, track business metrics
+            if (this.nodeType === NodeType.SME) {
+                this.businessMetrics.transactionVolume += data.amount;
+                this.businessMetrics.lastActivity = Date.now();
+                // Add sender to customer count if not null (not a genesis transaction)
+                if (data.sender) {
+                    this.businessMetrics.customerCount.add(data.sender);
+                }
+            }
+
+            // For validator nodes, perform additional validation
+            if (this.nodeType === NodeType.VALIDATOR) {
+                // Add any specific validation logic here
+                const senderBalance = this.blockchain.getBalance(data.sender);
+                if (senderBalance < data.amount) {
+                    return new Response(JSON.stringify({
+                        error: 'Insufficient funds',
+                        balance: senderBalance,
+                        attempted: data.amount
+                    }), {
+                        status: 400,
+                        headers: { "Content-Type": "application/json" }
+                    });
+                }
+            }
             
             // Create new transaction
             const transaction = new Transaction(
@@ -420,7 +567,7 @@ export class Node {
             // Validate and add transaction
             try {
                 // Validate transaction
-                if (!transaction.isValid()) {
+                if (data.type !== 'DEPOSIT' && !transaction.isValid()) {
                     return new Response(JSON.stringify({ 
                         error: "Invalid transaction signature",
                         status: "rejected"
@@ -430,9 +577,9 @@ export class Node {
                     });
                 }
     
-                // Check balance
+                // Check balance Node Agnostic
                 const senderBalance = this.blockchain.getBalance(transaction.sender);
-                if (senderBalance < transaction.amount) {
+                if (data.type !== 'DEPOSIT' &&senderBalance < transaction.amount) {
                     return new Response(JSON.stringify({ 
                         error: "Insufficient balance",
                         status: "rejected",
@@ -475,6 +622,151 @@ export class Node {
                 headers: { "Content-Type": "application/json" }
             });
         }
+    }
+
+    verifyWithdrawalAuthorization(data) {
+        try {
+            // 1. Verify timestamp is within acceptable window
+            const now = Date.now();
+            if (Math.abs(now - data.timestamp) > this.depositTimeWindow) {
+                return false;
+            }
+
+            // 2. Verify nonce hasn't been used (prevent replay attacks)
+            if (this.depositNonce.has(data.nonce)) {
+                return false;
+            }
+
+            // 3. Store nonce
+            this.depositNonce.set(data.nonce, Date.now());
+
+            // 4. Verify authorization signature
+            const message = `${data.sender}:${data.amount}:${data.timestamp}:${data.nonce}`;
+            const expectedAuth = createHmac('sha256', this.depositSecret)
+                .update(message)
+                .digest('hex');
+
+            return data.authorization === expectedAuth;
+        } catch (error) {
+            console.error('Withdrawal authorization verification failed:', error);
+            return false;
+        }
+    }
+
+    verifyDepositAuthorization(data) {
+        try {
+            // Verify timestamp is within acceptable window
+            const now = Date.now();
+            if (Math.abs(now - data.timestamp) > this.depositTimeWindow) {
+                return false;
+            }
+
+            // Verify authorization signature
+            const message = `${data.recipient}:${data.amount}:${data.timestamp}:${data.nonce}`;
+            const expectedAuth = createHmac('sha256', this.depositSecret)
+                .update(message)
+                .digest('hex');
+
+            return data.authorization === expectedAuth;
+        } catch (error) {
+            console.error('Deposit authorization verification failed:', error);
+            return false;
+        }
+    }
+
+    checkDepositRateLimit(recipient, amount) {
+        const now = Date.now();
+        const hourDeposits = this.depositRateLimit.deposits.get(recipient) || [];
+        
+        // Clean up old entries
+        const recentDeposits = hourDeposits.filter(
+            deposit => now - deposit.timestamp < this.depositRateLimit.window
+        );
+
+        // Check number of deposits
+        if (recentDeposits.length >= this.depositRateLimit.maxDeposits) {
+            return false;
+        }
+
+        // Check total amount if needed
+        const totalAmount = recentDeposits.reduce((sum, dep) => sum + dep.amount, 0);
+        // Add your business logic for maximum deposit amounts here
+
+        return true;
+    }
+
+    updateDepositRateLimit(recipient, amount) {
+        const now = Date.now();
+        const hourDeposits = this.depositRateLimit.deposits.get(recipient) || [];
+        
+        hourDeposits.push({
+            timestamp: now,
+            amount: amount
+        });
+
+        this.depositRateLimit.deposits.set(recipient, hourDeposits);
+    }
+
+    // Periodic cleanup of old nonces and rate limit data
+    cleanupDepositData() {
+        const now = Date.now();
+        
+        // Clean up old nonces
+        for (const [nonce, timestamp] of this.depositNonce) {
+            if (now - timestamp > this.depositTimeWindow) {
+                this.depositNonce.delete(nonce);
+            }
+        }
+
+        // Clean up rate limit data
+        for (const [recipient, deposits] of this.depositRateLimit.deposits) {
+            const recentDeposits = deposits.filter(
+                deposit => now - deposit.timestamp < this.depositRateLimit.window
+            );
+            if (recentDeposits.length === 0) {
+                this.depositRateLimit.deposits.delete(recipient);
+            } else {
+                this.depositRateLimit.deposits.set(recipient, recentDeposits);
+            }
+        }
+    }
+
+    getBalance(address) {
+        let balance = 0;
+        
+        // Check genesis allocations first
+        const genesisBlock = this.blockchain.chain[0];
+        if (genesisBlock) {
+            for (const tx of genesisBlock.transactions) {
+                if (tx.recipient === address) {
+                    balance += tx.amount;
+                }
+            }
+        }
+        
+        // Then check all other blocks
+        for (const block of this.blockchain.chain.slice(1)) {
+            for (const tx of block.transactions) {
+                if (tx.sender === address) {
+                    balance -= tx.amount;  // This handles both transfers and withdrawals
+                }
+                if (tx.recipient === address) {
+                    balance += tx.amount;  // This handles deposits and transfers
+                }
+            }
+        }
+    
+        // Also check pending transactions
+        for (const tx of this.blockchain.pendingTransactions) {
+            if (tx.sender === address) {
+                balance -= tx.amount;
+            }
+            if (tx.recipient === address) {
+                balance += tx.amount;
+            }
+        }
+        
+        return balance;
     }
 
     async handleBlock(req) {
@@ -1005,10 +1297,20 @@ export class Node {
             console.log(`Node ${this.port}: Mining block with ${this.blockchain.pendingTransactions.length} transactions`);
             
             try {
-                const newBlock = this.blockchain.minePendingTransactions(this.nodeId);
-                console.log(`Node ${this.port}: Mined new block ${newBlock.hash.substring(0, 10)}`);
+                // Create mining reward transaction
+                const rewardTx = new Transaction(
+                    null,  // null sender for rewards
+                    this.wallet.publicKey,  // reward goes to node's wallet
+                    this.blockchain.miningReward
+                );
                 
-                // Broadcast the new block
+                // Add reward transaction to pending transactions
+                this.blockchain.pendingTransactions.push(rewardTx);
+                
+                const newBlock = this.blockchain.minePendingTransactions();
+                console.log(`Node ${this.port}: Mined new block ${newBlock.hash.substring(0, 10)}`);
+                console.log(`Node ${this.port}: Earned mining reward of ${this.blockchain.miningReward} tokens`);
+                
                 await this.broadcastBlock(newBlock);
                 console.log(`Node ${this.port}: Broadcasted block to peers`);
             } catch (error) {
