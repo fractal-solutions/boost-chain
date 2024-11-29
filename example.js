@@ -43,22 +43,34 @@ async function displayChainState(nodePort, message) {
         }
 
         // Display chain information
-        chain.forEach((block, index) => {
-            console.log(`\nBlock ${index}:`);
-            if (block.transactions && Array.isArray(block.transactions)) {
-                console.log('Transactions:', block.transactions.length);
-                block.transactions.forEach((tx, i) => {
-                    console.log(`  Tx ${i}:`, {
-                        sender: tx.sender ? tx.sender.substring(0, 20) + '...' : 'null',
-                        recipient: tx.recipient ? tx.recipient.substring(0, 20) + '...' : 'null',
-                        amount: tx.amount
-                    });
-                });
-            } else {
-                console.log('No valid transactions in block');
-            }
-            console.log('Hash:', block.hash.substring(0, 10) + '...');
-        });
+        // Only show last 10 blocks
+        const startIndex = Math.max(0, chain.length - 10);
+        for (let i = startIndex; i < chain.length; i++) {
+            const block = chain[i];
+            console.log(`\n📦 Block #${block.index}`);
+            console.log(`├─ Transactions: ${block.transactions.length}`);
+            console.log(`└─ Hash: ${block.hash.substring(0, 10)}...`);
+
+            // Show transaction details
+            block.transactions.forEach((tx, index) => {
+                // Extract meaningful part of public keys
+                const senderKey = tx.sender?.replace('-----BEGIN PUBLIC KEY-----\n', '')
+                                         .replace('\n-----END PUBLIC KEY-----', '')
+                                         .trim();
+                const recipientKey = tx.recipient?.replace('-----BEGIN PUBLIC KEY-----\n', '')
+                                               .replace('\n-----END PUBLIC KEY-----', '')
+                                               .trim();
+
+                const formattedSenderKey = senderKey ? `${senderKey.substring(0,8)}...${senderKey.substring(senderKey.length-8)}` : '';
+                const formattedRecipientKey = recipientKey ? `${recipientKey.substring(0,8)}...${recipientKey.substring(recipientKey.length-8)}` : '';
+
+                console.log(`\n   Transaction #${index + 1}`);
+                console.log(`   ├─ Type: ${tx.amount > 0 ? 'Transfer' : 'System'}`);
+                console.log(`   ├─ From: ${senderKey ? `${formattedSenderKey}` : 'SYSTEM'}`);
+                console.log(`   ├─ To:   ${recipientKey ? `${formattedRecipientKey}` : 'SYSTEM'}`);
+                console.log(`   └─ Amount: ${tx.amount} tokens`);
+            });
+        }
     } catch (error) {
         console.error('Error displaying chain state:', error);
         console.error('Error details:', {

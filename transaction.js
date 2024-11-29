@@ -57,13 +57,13 @@ export class Transaction {
         try {
             const verify = createVerify("SHA256");
             const hash = this.calculateHash();
-            console.log("Transaction validation details:", {
-                hash: hash,
-                signatureLength: this.signature.length,
-                senderKeyLength: this.sender.length,
-                amount: this.amount,
-                timestamp: this.timestamp
-            });
+            // console.log("Transaction validation details:", {
+            //     hash: hash,
+            //     signatureLength: this.signature.length,
+            //     senderKeyLength: this.sender.length,
+            //     amount: this.amount,
+            //     timestamp: this.timestamp
+            // });
             
             verify.update(hash);
             const isValidSignature = verify.verify(this.sender, this.signature, "hex");
