@@ -29,13 +29,19 @@ export class Node {
 
         this.wallet = options.wallet || generateKeyPair();
 
-        // Increase rate limit window and max requests
-        this.rateLimitWindow = 60000; // 1 minute window
-        this.maxRequestsPerWindow = 100; // Allow more requests per window
 
         this.nodeType = options.nodeType || NodeType.VALIDATOR; // Default to validator
         this.nodeId = randomBytes(32).toString('hex');
         this.permissions = this.initializePermissions();
+
+        // Set rate limit based on node type
+        if (this.nodeType === NodeType.CONTROLLER) {
+            this.rateLimitWindow = 60000;  // 1 minute window
+            this.maxRequestsPerWindow = 1000;  // Much higher limit for controller
+        } else {
+            this.rateLimitWindow = 60000;  // 1 minute window
+            this.maxRequestsPerWindow = 100;  // Standard limit for other nodes
+        }
 
         // Controller-Node specific properties
         this.tokenMintingEnabled = this.nodeType === NodeType.CONTROLLER;
@@ -47,8 +53,8 @@ export class Node {
         
         // Add rate limiting specifically for deposits
         this.depositRateLimit = {
-            window: 3600000, // 1 hour
-            maxDeposits: 100,
+            window: 1000, // 1 second
+            maxDeposits: 500,
             deposits: new Map() // Track deposits per address
         };
 
@@ -367,24 +373,19 @@ export class Node {
 
 
     async handleGetBalance(req) {
-        const url = new URL(req.url);
-        const address = url.searchParams.get('address');
-        
-        if (!address) {
-            return new Response(JSON.stringify({ error: 'Address parameter required' }), {
-                status: 400,
-                headers: { "Content-Type": "application/json" }
-            });
-        }
-
         try {
-            // Use blockchain's getBalance directly
-            const balance = this.blockchain.getBalance(address);
+            const url = new URL(req.url);
+            const address = url.searchParams.get('address');
+            const balance = address ? this.blockchain.getBalance(address) : this.blockchain.getBalance(this.wallet.publicKey);
+            
             return new Response(JSON.stringify({ balance }), {
                 headers: { "Content-Type": "application/json" }
             });
         } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
+            return new Response(JSON.stringify({ 
+                error: error.message,
+                balance: 0 
+            }), {
                 status: 500,
                 headers: { "Content-Type": "application/json" }
             });
@@ -428,7 +429,9 @@ export class Node {
 
     async handleTransaction(req) {
         try {
+            console.log("Received transaction request");
             const data = await req.json();
+            console.log("Parsed request data:", data);
 
             // Validate transaction type and permissions
             // Special handling for deposits through controller node
@@ -491,24 +494,7 @@ export class Node {
                     }), { status: 403 });
                 }
 
-                // 2. Verify withdrawal authorization
-                if (!this.verifyWithdrawalAuthorization(data)) {
-                    return new Response(JSON.stringify({
-                        error: 'Invalid withdrawal authorization'
-                    }), { status: 401 });
-                }
-
-                // 3. Double check balance (important!)
-                const senderBalance = this.blockchain.getBalance(data.sender);
-                if (senderBalance < data.amount) {
-                    return new Response(JSON.stringify({
-                        error: 'Insufficient balance for withdrawal',
-                        balance: senderBalance,
-                        attempted: data.amount
-                    }), { status: 400 });
-                }
-
-                // 4. Create withdrawal transaction with proper signature
+                // 2. Create transaction object for withdrawal
                 const transaction = new Transaction(
                     data.sender,
                     null,  // Null recipient for withdrawals
@@ -516,7 +502,25 @@ export class Node {
                 );
                 transaction.timestamp = data.timestamp;
                 transaction.signature = data.signature;
-                transaction.type = "WITHDRAW";  // Mark as withdrawal
+                transaction.type = "WITHDRAW";
+
+                // 3. Verify withdrawal authorization
+                if (!this.verifyWithdrawalAuthorization(data)) {
+                    return new Response(JSON.stringify({
+                        error: 'Invalid withdrawal authorization'
+                    }), { status: 401 });
+                }
+
+                // 4. Check balance
+                const senderBalance = this.blockchain.getBalance(data.sender);
+                if (senderBalance < data.amount) {
+                    return new Response(JSON.stringify({
+                        error: 'Insufficient balance',
+                        status: 'rejected',
+                        balance: senderBalance,
+                        attempted: data.amount
+                    }), { status: 400 });
+                }
 
                 // 5. Add to blockchain's pending transactions
                 this.blockchain.addTransaction(transaction);
@@ -614,9 +618,11 @@ export class Node {
                 });
             }
         } catch (error) {
+            console.error("Error parsing transaction request:", error);
             return new Response(JSON.stringify({ 
                 error: "Invalid request format",
-                status: "rejected"
+                status: "rejected",
+                details: error.message
             }), {
                 status: 400,
                 headers: { "Content-Type": "application/json" }
@@ -629,24 +635,30 @@ export class Node {
             // 1. Verify timestamp is within acceptable window
             const now = Date.now();
             if (Math.abs(now - data.timestamp) > this.depositTimeWindow) {
+                console.log('Withdrawal failed: Timestamp outside window');
                 return false;
             }
-
+    
             // 2. Verify nonce hasn't been used (prevent replay attacks)
             if (this.depositNonce.has(data.nonce)) {
+                console.log('Withdrawal failed: Nonce already used');
                 return false;
             }
-
+    
             // 3. Store nonce
             this.depositNonce.set(data.nonce, Date.now());
-
+    
             // 4. Verify authorization signature
             const message = `${data.sender}:${data.amount}:${data.timestamp}:${data.nonce}`;
-            const expectedAuth = createHmac('sha256', this.depositSecret)
+            const expectedAuth = createHmac('sha256', process.env.NETWORK_SECRET)  // Use NETWORK_SECRET instead of depositSecret
                 .update(message)
                 .digest('hex');
-
-            return data.authorization === expectedAuth;
+    
+            const isValid = data.authorization === expectedAuth;
+            if (!isValid) {
+                console.log('Withdrawal failed: Invalid authorization');
+            }
+            return isValid;
         } catch (error) {
             console.error('Withdrawal authorization verification failed:', error);
             return false;
@@ -731,121 +743,62 @@ export class Node {
         }
     }
 
-    getBalance(address) {
-        let balance = 0;
-        
-        // Check genesis allocations first
-        const genesisBlock = this.blockchain.chain[0];
-        if (genesisBlock) {
-            for (const tx of genesisBlock.transactions) {
-                if (tx.recipient === address) {
-                    balance += tx.amount;
-                }
-            }
-        }
-        
-        // Then check all other blocks
-        for (const block of this.blockchain.chain.slice(1)) {
-            for (const tx of block.transactions) {
-                if (tx.sender === address) {
-                    balance -= tx.amount;  // This handles both transfers and withdrawals
-                }
-                if (tx.recipient === address) {
-                    balance += tx.amount;  // This handles deposits and transfers
-                }
-            }
-        }
-    
-        // Also check pending transactions
-        for (const tx of this.blockchain.pendingTransactions) {
-            if (tx.sender === address) {
-                balance -= tx.amount;
-            }
-            if (tx.recipient === address) {
-                balance += tx.amount;
-            }
-        }
-        
-        return balance;
-    }
 
-    async handleBlock(req) {
+    async handleNewBlock(req) {
         try {
             const blockData = await req.json();
             console.log(`Node ${this.port}: Received new block with hash ${blockData.hash.substring(0, 10)}`);
             
-            // First, ensure we're in sync
-            const latestBlock = this.blockchain.getLatestBlock();
-            if (blockData.previousHash !== latestBlock.hash) {
-                console.log(`Node ${this.port}: Block doesn't connect to our chain. Our latest hash: ${latestBlock.hash.substring(0, 10)}`);
-                
-                // Get the full chain from the peer that sent this block
-                const peerAddress = req.headers.get('x-forwarded-host') || 'localhost:3001';
-                console.log(`Node ${this.port}: Requesting chain from ${peerAddress}`);
-                
-                const success = await this.syncWithPeer(peerAddress);
-                if (!success) {
-                    throw new Error("Failed to sync with peer");
-                }
-                console.log(`Node ${this.port}: Chain synchronized successfully`);
+            // Validate block structure first
+            if (!blockData || !blockData.hash || !blockData.previousHash || !Array.isArray(blockData.transactions)) {
+                throw new Error('Invalid block structure received');
             }
     
-            // Now try to add the block again
-            const newBlock = this.reconstructBlock(blockData);
+            // Reconstruct and validate the block
+            const block = this.reconstructBlock(blockData);
             
-            if (this.blockchain.isValidBlock(newBlock)) {
-                this.blockchain.chain.push(newBlock);
-                console.log(`Node ${this.port}: Added new block ${newBlock.hash.substring(0, 10)}. Chain height: ${this.blockchain.chain.length}`);
-                return new Response(JSON.stringify({ message: "Block added successfully" }));
-            } else {
-                throw new Error("Invalid block after sync");
+            // Validate block connects to our chain
+            const latestBlock = this.blockchain.getLatestBlock();
+            if (block.previousHash !== latestBlock.hash) {
+                console.log(`Node ${this.port}: Block doesn't connect. Expected previous hash ${latestBlock.hash.substring(0, 10)}, got ${block.previousHash.substring(0, 10)}`);
+                return new Response(JSON.stringify({ 
+                    error: "Block doesn't connect to current chain" 
+                }), {
+                    status: 400,
+                    headers: { "Content-Type": "application/json" }
+                });
             }
+    
+            // Validate transactions in block
+            for (const tx of block.transactions) {
+                if (!tx.isValid()) {
+                    throw new Error('Block contains invalid transaction');
+                }
+            }
+    
+            // Add block to chain
+            this.blockchain.chain.push(block);
+            console.log(`Node ${this.port}: Added new block ${block.hash.substring(0, 10)}. Chain height: ${this.blockchain.chain.length}`);
+            
+            return new Response(JSON.stringify({ 
+                message: "Block added successfully",
+                height: this.blockchain.chain.length
+            }), {
+                headers: { "Content-Type": "application/json" }
+            });
+    
         } catch (error) {
-            console.error(`Node ${this.port}: Error handling block:`, error);
-            return new Response(JSON.stringify({ error: error.message }), {
+            console.error(`Node ${this.port}: Error handling new block:`, error);
+            return new Response(JSON.stringify({ 
+                error: error.message 
+            }), {
                 status: 400,
                 headers: { "Content-Type": "application/json" }
             });
         }
     }
 
-    async handleNewBlock(request) {
-        try {
-            const newBlock = await request.json();
-            console.log(`Node ${this.port}: Received new block with hash ${newBlock.hash}`);
-            
-            // Add check for block height
-            if (newBlock.index !== this.blockchain.chain.length) {
-                console.log(`Node ${this.port}: Block height mismatch. Expected ${this.blockchain.chain.length}, got ${newBlock.index}`);
-                await this.syncWithPeer(request.headers.get('x-forwarded-host') || 'localhost:3001');
-            }
-    
-            // Add additional validation
-            const latestBlock = this.blockchain.getLatestBlock();
-            if (newBlock.previousHash !== latestBlock.hash) {
-                console.log(`Node ${this.port}: Block doesn't connect. Expected previous hash ${latestBlock.hash}, got ${newBlock.previousHash}`);
-                await this.syncWithPeer(request.headers.get('x-forwarded-host') || 'localhost:3001');
-                // Try adding the block again after sync
-                if (this.blockchain.isValidBlock(newBlock)) {
-                    this.blockchain.chain.push(newBlock);
-                    console.log(`Node ${this.port}: Added new block ${newBlock.hash.substring(0, 10)} after sync. Chain height: ${this.blockchain.chain.length}`);
-                    return new Response(JSON.stringify({ message: "Block added successfully" }));
-                }
-            }
-    
-            if (this.blockchain.isValidBlock(newBlock)) {
-                this.blockchain.chain.push(newBlock);
-                console.log(`Node ${this.port}: Added new block ${newBlock.hash.substring(0, 10)}. Chain height: ${this.blockchain.chain.length}`);
-                return new Response(JSON.stringify({ message: "Block added successfully" }));
-            } else {
-                //throw new Error("Invalid block after sync");
-                return new Response(JSON.stringify({ error: "Invalid block after sync" }), { status: 400 });
-            }
-        } catch (error) {
-            console.error(`Node ${this.port}: Error handling block:`, error);
-            return new Response(JSON.stringify({ error: error.message }), { status: 400 });
-        }
-    }
+ 
 
     // Helper method to reconstruct chain with proper objects
     reconstructChain(chainData) {
@@ -867,30 +820,25 @@ export class Node {
 
     reconstructBlock(blockData) {
         try {
-            // Reconstruct transactions exactly as they were
-            const transactions = blockData.transactions.map(txData => {
-                const tx = new Transaction(txData.sender, txData.recipient, txData.amount);
-                tx.timestamp = txData.timestamp; // Use original timestamp
-                tx.signature = txData.signature; // Use original signature
-                return tx;
-            });
-    
-            // Create new block with original values
             const block = new Block(
-                blockData.index,
-                transactions,
-                blockData.previousHash,
-                blockData.timestamp  // Use original timestamp
+                blockData.index || this.blockchain.chain.length,
+                blockData.transactions.map(tx => {
+                    const transaction = new Transaction(tx.sender, tx.recipient, Number(tx.amount));
+                    transaction.timestamp = tx.timestamp;
+                    transaction.signature = tx.signature;
+                    return transaction;
+                }),
+                blockData.previousHash
             );
             
-            // Important: Set these values from the original block
-            block.nonce = blockData.nonce;
             block.hash = blockData.hash;
+            block.timestamp = blockData.timestamp;
+            block.nonce = blockData.nonce;
             
             return block;
         } catch (error) {
             console.error(`Node ${this.port}: Error reconstructing block:`, error);
-            throw error;
+            throw new Error('Failed to reconstruct block: ' + error.message);
         }
     }
     
@@ -934,9 +882,33 @@ export class Node {
     }
 
     async handleGetChain(req) {
-        return new Response(JSON.stringify(this.blockchain.chain), {
-            headers: { "Content-Type": "application/json" }
-        });
+        try {
+            // Convert chain to a serializable format
+            const chainData = this.blockchain.chain.map(block => ({
+                index: block.index,
+                timestamp: block.timestamp,
+                transactions: block.transactions.map(tx => ({
+                    sender: tx.sender,
+                    recipient: tx.recipient,
+                    amount: tx.amount,
+                    timestamp: tx.timestamp,
+                    signature: tx.signature
+                })),
+                previousHash: block.previousHash,
+                hash: block.hash,
+                nonce: block.nonce
+            }));
+    
+            return new Response(JSON.stringify(chainData), {
+                headers: { "Content-Type": "application/json" }
+            });
+        } catch (error) {
+            console.error('Error getting chain:', error);
+            return new Response(JSON.stringify({ error: 'Error retrieving chain' }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
     }
 
     async handleGetPeers(req) {
@@ -948,16 +920,28 @@ export class Node {
     }
 
     async handleHealthCheck(req) {
-        return new Response(JSON.stringify({
-            status: "healthy",
-            timestamp: Date.now(),
-            blockHeight: this.blockchain.chain.length,
-            peersCount: this.peers.size,
-            lastBlockHash: this.blockchain.getLatestBlock().hash.substring(0, 10) + '...',
-            pendingTransactions: this.blockchain.pendingTransactions.length
-        }), {
-            headers: { "Content-Type": "application/json" }
-        });
+        try {
+            const health = {
+                status: 'healthy',
+                blockHeight: this.blockchain.chain.length,
+                peersCount: this.peers.size,
+                nodeType: this.nodeType,
+                pendingTransactions: this.blockchain.pendingTransactions.length
+            };
+            
+            return new Response(JSON.stringify(health), {
+                headers: { "Content-Type": "application/json" }
+            });
+        } catch (error) {
+            console.error(`Node ${this.port}: Health check failed:`, error);
+            return new Response(JSON.stringify({
+                status: 'unhealthy',
+                error: error.message
+            }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
     }
 
     async broadcastTransaction(transaction) {
@@ -977,6 +961,21 @@ export class Node {
     async broadcastBlock(block) {
         const promises = Array.from(this.peers.keys()).map(async (peerAddress) => {
             try {
+                // Serialize block with its original hash
+                const blockData = {
+                    index: block.index,
+                    timestamp: block.timestamp,
+                    transactions: block.transactions.map(tx => ({
+                        sender: tx.sender,
+                        recipient: tx.recipient,
+                        amount: tx.amount,
+                        timestamp: tx.timestamp,
+                        signature: tx.signature
+                    })),
+                    previousHash: block.previousHash,
+                    nonce: block.nonce,
+                    hash: block.hash // Include original hash
+                };
                 console.log(`Node ${this.port}: Broadcasting block to peer ${peerAddress}`);
                 const response = await fetch(`http://${peerAddress}/block`, {
                     method: 'POST',
@@ -985,7 +984,7 @@ export class Node {
                         'x-auth-token': process.env.NETWORK_SECRET,
                         'x-forwarded-host': `localhost:${this.port}` // Add sender information
                     },
-                    body: JSON.stringify(block)
+                    body: JSON.stringify(blockData)
                 });
     
                 if (!response.ok) {
@@ -1001,7 +1000,34 @@ export class Node {
         console.log(`Node ${this.port}: Broadcasted block to peers`);
     }
 
-    async checkRateLimit(req) {
+    async checkRateLimit(clientId) {
+        const now = Date.now();
+        if (!this.rateLimit.has(clientId)) {
+            this.rateLimit.set(clientId, {
+                count: 1,
+                windowStart: now
+            });
+            return true;
+        }
+    
+        const limit = this.rateLimit.get(clientId);
+        if (now - limit.windowStart > this.rateLimitWindow) {
+            // Reset window
+            limit.count = 1;
+            limit.windowStart = now;
+            return true;
+        }
+    
+        if (limit.count >= this.maxRequestsPerWindow) {
+            console.log(`Rate limit exceeded for client ${clientId.substring(0, 8)}...`);
+            return false;
+        }
+    
+        limit.count++;
+        return true;
+    }
+
+    async checkRateLimitX(req) {
         const ip = req.headers.get('x-forwarded-for') || 'localhost';
         const now = Date.now();
         const windowMs = this.rateLimitWindow; // 1 minute
@@ -1093,82 +1119,8 @@ export class Node {
             .digest('hex');
     }
 
-    async syncWithPeer(peerAddress) {
-        try {
-            console.log(`Node ${this.port}: Attempting to sync with peer ${peerAddress}`);
-            const response = await fetch(`http://${peerAddress}/chain`, {
-                headers: { 
-                    'x-auth-token': process.env.NETWORK_SECRET,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`Failed to get chain from peer: ${response.status}`);
-            }
-            
-            const peerChain = await response.json();
-            console.log(`Node ${this.port}: Received chain of length ${peerChain.length} from peer`);
-            
-            // Reconstruct the chain with proper objects
-            const reconstructedChain = peerChain.map(blockData => {
-                // Reconstruct transactions first
-                const transactions = blockData.transactions.map(txData => {
-                    const tx = new Transaction(txData.sender, txData.recipient, txData.amount);
-                    tx.timestamp = txData.timestamp;
-                    tx.signature = txData.signature;
-                    return tx;
-                });
-    
-                // Then reconstruct the block
-                const block = new Block(blockData.index, transactions, blockData.previousHash);
-                block.timestamp = blockData.timestamp;
-                block.nonce = blockData.nonce;
-                block.hash = blockData.hash;
-                return block;
-            });
-    
-            // Validate the reconstructed chain
-            if (this.blockchain.isValidChain(reconstructedChain)) {
-                this.blockchain.chain = reconstructedChain;
-                console.log(`Node ${this.port}: Successfully synchronized with peer ${peerAddress}. New chain height: ${reconstructedChain.length}`);
-                return true;
-            } else {
-                throw new Error("Chain validation failed after reconstruction");
-            }
-        } catch (error) {
-            console.error(`Node ${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
-            return false;
-        }
-    }
 
-    getBalance(address) {
-        let balance = 0;
-        
-        // Check genesis allocations first
-        const genesisBlock = this.blockchain.chain[0];
-        if (genesisBlock) {
-            for (const tx of genesisBlock.transactions) {
-                if (tx.recipient === address) {
-                    balance += tx.amount;
-                }
-            }
-        }
-        
-        // Then check all other blocks
-        for (const block of this.blockchain.chain.slice(1)) {
-            for (const tx of block.transactions) {
-                if (tx.sender === address) {
-                    balance -= tx.amount;
-                }
-                if (tx.recipient === address) {
-                    balance += tx.amount;
-                }
-            }
-        }
-        
-        return balance;
-    }
+
 
     async broadcastChain() {
         const promises = Array.from(this.peers.values()).map(peer =>
@@ -1190,6 +1142,7 @@ export class Node {
         try {
             let longestChain = this.blockchain.chain;
             let maxHeight = longestChain.length;
+            let syncedWithPeer = false;
     
             // Get all peer chains
             for (const [peerAddress] of this.peers) {
@@ -1202,45 +1155,43 @@ export class Node {
                         }
                     });
                     
-                    if (!response.ok) continue;
+                    if (!response.ok) {
+                        console.log(`Node ${this.port}: Failed to get chain from ${peerAddress}, status: ${response.status}`);
+                        continue;
+                    }
                     
                     const peerChainData = await response.json();
                     
-                    // Reconstruct the chain with proper Block objects
-                    const reconstructedChain = peerChainData.map(blockData => {
-                        // Reconstruct transactions first
-                        const transactions = blockData.transactions.map(txData => {
-                            const tx = new Transaction(txData.sender, txData.recipient, txData.amount);
-                            tx.timestamp = txData.timestamp;
-                            tx.signature = txData.signature;
-                            return tx;
-                        });
+                    // Skip if peer chain is empty or invalid
+                    if (!Array.isArray(peerChainData) || peerChainData.length === 0) {
+                        console.log(`Node ${this.port}: Invalid chain data from ${peerAddress}`);
+                        continue;
+                    }
     
-                        // Create new Block instance
-                        const block = new Block(blockData.index, transactions, blockData.previousHash);
-                        block.timestamp = blockData.timestamp;
-                        block.nonce = blockData.nonce;
-                        block.hash = blockData.hash;
-                        return block;
-                    });
-    
+                    // Reconstruct and validate the chain
+                    const reconstructedChain = this.reconstructChain(peerChainData);
+                    
                     if (reconstructedChain.length > maxHeight && 
                         this.blockchain.isValidChain(reconstructedChain)) {
                         longestChain = reconstructedChain;
                         maxHeight = reconstructedChain.length;
-                        console.log(`Node ${this.port}: Found longer valid chain (${maxHeight} blocks)`);
+                        syncedWithPeer = true;
+                        console.log(`Node ${this.port}: Found longer valid chain from ${peerAddress} (${maxHeight} blocks)`);
                     }
                 } catch (error) {
                     console.error(`Node ${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
                 }
             }
     
-            // Update our chain if we found a longer valid chain
-            if (maxHeight > this.blockchain.chain.length) {
+            // Update chain only if we found a longer valid chain
+            if (syncedWithPeer && maxHeight > this.blockchain.chain.length) {
+                const oldLength = this.blockchain.chain.length;
                 this.blockchain.chain = longestChain;
-                console.log(`Node ${this.port}: Updated chain to height ${maxHeight}`);
+                console.log(`Node ${this.port}: Updated chain from height ${oldLength} to ${maxHeight}`);
                 return true;
             }
+            
+            console.log(`Node ${this.port}: Already on longest chain (height: ${this.blockchain.chain.length})`);
             return false;
         } catch (error) {
             console.error(`Node ${this.port}: Sync error:`, error.message);
@@ -1248,50 +1199,7 @@ export class Node {
         }
     }
 
-    async syncWithPeersX() {
-        if (this.peers.size === 0) return;
-        
-        try {
-            let longestChain = this.blockchain.chain;
-            let maxHeight = longestChain.length;
-    
-            // Get all peer chains
-            for (const [peerAddress] of this.peers) {
-                try {
-                    console.log(`Node ${this.port}: Syncing with peer ${peerAddress}`);
-                    const response = await fetch(`http://${peerAddress}/chain`, {
-                        headers: { 
-                            'x-auth-token': process.env.NETWORK_SECRET,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (!response.ok) continue;
-                    
-                    const peerChain = await response.json();
-                    if (peerChain.length > maxHeight && this.blockchain.isValidChain(peerChain)) {
-                        longestChain = peerChain;
-                        maxHeight = peerChain.length;
-                        console.log(`Node ${this.port}: Found longer valid chain (${maxHeight} blocks)`);
-                    }
-                } catch (error) {
-                    console.error(`Node ${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
-                }
-            }
-    
-            // Update our chain if we found a longer valid chain
-            if (maxHeight > this.blockchain.chain.length) {
-                this.blockchain.chain = longestChain;
-                console.log(`Node ${this.port}: Updated chain to height ${maxHeight}`);
-                return true;
-            }
-            return false;
-        } catch (error) {
-            console.error(`Node ${this.port}: Sync error:`, error.message);
-            return false;
-        }
-    }
-
+   
     async mineIfNeeded() {
         if (this.blockchain.pendingTransactions.length > 0) {
             console.log(`Node ${this.port}: Mining block with ${this.blockchain.pendingTransactions.length} transactions`);

@@ -62,78 +62,134 @@ export class Blockchain {
     }
 
     isValidChain(chain) {
-        // First, compare genesis blocks by hash
-        const genesisBlock = chain[0];
-        const ourGenesis = this.chain[0];
+        try{
+            // If new chain is shorter, reject it
+            if (chain.length < this.chain.length) {
+                console.log('Rejecting shorter chain');
+                return false;
+            }
+            
+            // First, compare genesis blocks by hash
+            const genesisBlock = chain[0];
+            const ourGenesis = this.chain[0];
+            
+            if (genesisBlock.hash !== ourGenesis.hash) {
+                console.log('Genesis block mismatch:', {
+                    received: genesisBlock.hash.substring(0, 10),
+                    expected: ourGenesis.hash.substring(0, 10)
+                });
+                return false;
+            }
         
-        if (genesisBlock.hash !== ourGenesis.hash) {
-            console.log('Genesis block mismatch:', {
-                received: genesisBlock.hash.substring(0, 10),
-                expected: ourGenesis.hash.substring(0, 10)
-            });
-            return false;
-        }
-    
-        // Check the rest of the chain
-        for (let i = 1; i < chain.length; i++) {
-            const block = chain[i];
-            const previousBlock = chain[i - 1];
-    
-            if (block.previousHash !== previousBlock.hash) {
-                console.log(`Invalid block connection at height ${i}`);
-                return false;
-            }
-    
-            if (block.hash !== block.calculateHash()) {
-                console.log(`Invalid block hash at height ${i}`);
-                return false;
-            }
-    
-            for (const tx of block.transactions) {
-                if (!tx.isValid() && tx.sender !== null) {
-                    console.log(`Invalid transaction in block ${i}`);
+            // Check the rest of the chain
+            for (let i = 1; i < chain.length; i++) {
+                const block = chain[i];
+                const previousBlock = chain[i - 1];
+        
+                if (block.previousHash !== previousBlock.hash) {
+                    console.log(`Invalid block connection at height ${i}`);
                     return false;
                 }
+        
+                // Verify block hash
+                const calculatedHash = block.calculateHash();
+                if (block.hash !== calculatedHash) {
+                    console.log(`Invalid block hash at height ${i}:`, {
+                        stored: block.hash.substring(0, 10),
+                        calculated: calculatedHash.substring(0, 10)
+                    });
+                    return false;
+                }
+        
+                for (const tx of block.transactions) {
+                    if (!tx.isValid() && tx.sender !== null) {
+                        console.log(`Invalid transaction in block ${i}`);
+                        return false;
+                    }
+                }
             }
+            return true;
+        } catch (error) {
+            console.error('Error validating chain:', error);
+            return false;
         }
-        return true;
     }
 
     isValidBlock(block) {
         try {
-            // Convert plain object to Block instance if needed
-            const blockInstance = block instanceof Block ? block : new Block(
-                block.index,
-                block.transactions.map(tx => new Transaction(tx.sender, tx.recipient, tx.amount, tx.timestamp, tx.signature)),
-                block.previousHash,
-                block.timestamp,
-                block.nonce
-            );
+            const blockInstance = block instanceof Block ? block : new Block(block.index, [], block.previousHash);
+            blockInstance.timestamp = block.timestamp;
+            blockInstance.nonce = block.nonce;
+            blockInstance.hash = block.hash;
     
-            // Check block index
-            if (blockInstance.index !== this.chain.length) {
-                console.log(`Invalid block index. Expected ${this.chain.length}, got ${blockInstance.index}`);
+            blockInstance.transactions = block.transactions.map(tx => {
+                if (tx instanceof Transaction) return tx;
+                const reconstructedTx = new Transaction(tx.sender, tx.recipient, tx.amount);
+                reconstructedTx.timestamp = tx.timestamp;
+                reconstructedTx.signature = tx.signature;
+                return reconstructedTx;
+            });
+    
+            const previousBlock = this.chain[this.chain.length - 1];
+    
+            if (blockInstance.previousHash !== previousBlock.hash) {
+                console.log('Block does not connect to previous block');
                 return false;
             }
     
-            // Check if block connects to our chain
-            const latestBlock = this.getLatestBlock();
-            if (blockInstance.previousHash !== latestBlock.hash) {
-                console.log('Block does not connect to latest block');
+            const calculatedHash = blockInstance.calculateHash();
+            if (calculatedHash !== blockInstance.hash) {
+                console.log('Block hash verification failed:', {
+                    stored: blockInstance.hash.substring(0, 10),
+                    calculated: calculatedHash.substring(0, 10)
+                });
+                return false;
+            }
+    
+            for (const tx of blockInstance.transactions) {
+                if (!tx.isValid() && tx.sender !== null) {
+                    console.log('Invalid transaction in block');
+                    return false;
+                }
+            }
+    
+            return true;
+        } catch (error) {
+            console.error('Error validating block:', error);
+            return false;
+        }
+    }
+
+    isValidBlockX(block) {
+        try {
+            // Convert plain object to Block instance if needed
+            const blockInstance = block instanceof Block ? block : new Block(block.index, [], block.previousHash);
+            blockInstance.timestamp = block.timestamp;
+            blockInstance.nonce = block.nonce;
+            blockInstance.hash = block.hash;
+    
+            // Reconstruct Transaction objects
+            blockInstance.transactions = block.transactions.map(tx => {
+                if (tx instanceof Transaction) return tx;
+                const reconstructedTx = new Transaction(tx.sender, tx.recipient, tx.amount);
+                reconstructedTx.timestamp = tx.timestamp;
+                reconstructedTx.signature = tx.signature;
+                reconstructedTx.nonce = tx.nonce;
+                reconstructedTx.type = tx.type;
+                return reconstructedTx;
+            });
+    
+            // Get the previous block from the chain
+            const previousBlock = this.chain[this.chain.length - 1];
+            
+            // Rest of validation logic...
+            if (blockInstance.previousHash !== previousBlock.hash) {
+                console.log('Block does not connect to previous block');
                 return false;
             }
     
             // Verify proof of work
-            const hashStartsWithZeros = blockInstance.hash.substring(0, this.difficulty) === '0'.repeat(this.difficulty);
-
-            console.log('Block validation details:', {
-                hash: blockInstance.hash,
-                difficulty: this.difficulty,
-                requiredPrefix: '0'.repeat(this.difficulty),
-                actualPrefix: blockInstance.hash.substring(0, this.difficulty),
-                meetsRequirement: hashStartsWithZeros
-            });
-
+            const hashStartsWithZeros = blockInstance.hash.startsWith('0'.repeat(this.difficulty));
             if (!hashStartsWithZeros) {
                 console.log('Block does not meet difficulty requirement');
                 return false;
@@ -141,23 +197,21 @@ export class Blockchain {
     
             // Verify block hash matches its contents
             const calculatedHash = blockInstance.calculateHash();
-            if (block.hash !== calculatedHash) {
-                console.log('Block hash mismatch:', {
-                    received: block.hash.substring(0, 10),
+            if (calculatedHash !== blockInstance.hash) {
+                console.log('Block hash verification failed:', {
+                    stored: blockInstance.hash.substring(0, 10),
                     calculated: calculatedHash.substring(0, 10)
                 });
                 return false;
             }
     
-            // Verify all transactions in the block
-            for (const transaction of blockInstance.transactions) {
-                if (!transaction.isValid() && transaction.sender !== null) {
-                    console.log('Transaction validation failed');
+            // Verify all transactions
+            for (const tx of blockInstance.transactions) {
+                if (!tx.isValid() && tx.sender !== null) {
+                    console.log('Invalid transaction in block');
                     return false;
                 }
             }
-
-           
     
             return true;
         } catch (error) {
@@ -168,23 +222,33 @@ export class Blockchain {
 
 
     getBalance(address) {
-        let balance = 0;
-
-        // Process all blocks including genesis
-        for (const block of this.chain) {
-            for (const transaction of block.transactions) {
-                if (transaction.sender === address) {
-                    balance -= transaction.amount;
-                }
-                if (transaction.recipient === address) {
-                    balance += transaction.amount;
+        try {
+            if (!address) return 0;
+            let balance = 0;
+            
+            // Process all blocks including genesis
+            for (const block of this.chain) {
+                if (!block || !block.transactions) continue;
+                for (const tx of block.transactions) {
+                    if (!tx || typeof tx.amount !== 'number') continue;
+                    if (tx.sender === address) balance -= Number(tx.amount);
+                    if (tx.recipient === address) balance += Number(tx.amount);
                 }
             }
+    
+            // Add pending transactions if they exist
+            if (Array.isArray(this.pendingTransactions)) {
+                for (const tx of this.pendingTransactions) {
+                    if (!tx || typeof tx.amount !== 'number') continue;
+                    if (tx.sender === address) balance -= Number(tx.amount);
+                    if (tx.recipient === address) balance += Number(tx.amount);
+                }
+            }
+    
+            return balance;
+        } catch (error) {
+            console.error('Error calculating balance:', error);
+            return 0;
         }
-
-        // Do NOT include pending transactions in balance calculation
-        // This ensures balances only reflect confirmed transactions
-
-        return balance;
     }
 }

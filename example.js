@@ -19,30 +19,46 @@ async function displayChainState(nodePort, message) {
             headers: { 'x-auth-token': process.env.NETWORK_SECRET }
         });
         
-        const chain = await response.json();
-        console.log('Received chain type:', typeof chain);
-        console.log('Is array?', Array.isArray(chain));
-        //console.log('Chain structure:', JSON.stringify(chain, null, 2));
+        let chain = await response.json();
         
+        // Handle both array and object formats
         if (!Array.isArray(chain)) {
-            console.error('Chain is not an array. Converting...');
-            const chainArray = Object.values(chain);
-            if (!Array.isArray(chainArray)) {
-                throw new Error('Unable to convert chain to array');
-            }
-            
-            chainArray.forEach((block, index) => {
-                console.log(`\nBlock ${index}:`);
-                console.log('Transactions:', block.transactions);
-                console.log('Hash:', block.hash.substring(0, 10) + '...');
-            });
-        } else {
-            chain.forEach((block, index) => {
-                console.log(`\nBlock ${index}:`);
-                console.log('Transactions:', block.transactions);
-                console.log('Hash:', block.hash.substring(0, 10) + '...');
-            });
+            console.log('Converting chain object to array...');
+            // If chain is an object with numeric keys, convert to array
+            chain = Object.values(chain).map(block => {
+                // Ensure block has all required properties
+                if (!block || !block.transactions || !block.hash) {
+                    console.log('Invalid block structure:', block);
+                    return null;
+                }
+                return {
+                    index: block.index,
+                    transactions: block.transactions,
+                    hash: block.hash,
+                    previousHash: block.previousHash,
+                    timestamp: block.timestamp,
+                    nonce: block.nonce
+                };
+            }).filter(block => block !== null);
         }
+
+        // Display chain information
+        chain.forEach((block, index) => {
+            console.log(`\nBlock ${index}:`);
+            if (block.transactions && Array.isArray(block.transactions)) {
+                console.log('Transactions:', block.transactions.length);
+                block.transactions.forEach((tx, i) => {
+                    console.log(`  Tx ${i}:`, {
+                        sender: tx.sender ? tx.sender.substring(0, 20) + '...' : 'null',
+                        recipient: tx.recipient ? tx.recipient.substring(0, 20) + '...' : 'null',
+                        amount: tx.amount
+                    });
+                });
+            } else {
+                console.log('No valid transactions in block');
+            }
+            console.log('Hash:', block.hash.substring(0, 10) + '...');
+        });
     } catch (error) {
         console.error('Error displaying chain state:', error);
         console.error('Error details:', {
@@ -54,27 +70,54 @@ async function displayChainState(nodePort, message) {
 }
 
 async function checkAllBalances(nodePort) {
-    console.log('\nCurrent Balances:');
-    const accounts = [
-        { name: 'Alice', keys: alice },
-        { name: 'Bob', keys: bob },
-        { name: 'Charlie', keys: charlie },
-        { name: 'Dave', keys: dave }
-    ];
+    console.log('\nAccount Balances:');
+    const accounts = [alice, bob, charlie, dave];
 
     for (const account of accounts) {
-        const balanceRes = await fetch(
-            `http://localhost:${nodePort}/balance?address=${encodeURIComponent(account.keys.publicKey)}`,
-            { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
-        );
-        const balance = await balanceRes.json();
-        console.log(`${account.name}: ${balance.balance} tokens`);
+        try {
+            const balanceRes = await fetch(
+                `http://localhost:${nodePort}/balance?address=${encodeURIComponent(account.publicKey)}`,
+                { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+            );
+            
+            if (balanceRes.status === 429) {
+                console.log('Rate limit hit, trying alternate node...');
+                // Try another node
+                for (const altPort of [3001, 3002, 3003, 3004]) {
+                    if (altPort === nodePort) continue;
+                    const altRes = await fetch(
+                        `http://localhost:${altPort}/balance?address=${encodeURIComponent(account.publicKey)}`,
+                        { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+                    );
+                    if (altRes.ok) {
+                        const { balance } = await altRes.json();
+                        const shortKey = account.publicKey
+                            .replace('-----BEGIN PUBLIC KEY-----\n', '')
+                            .replace('\n-----END PUBLIC KEY-----\n', '')
+                            .substring(0, 8);
+                        console.log(`${shortKey}... : ${balance} tokens`);
+                        break;
+                    }
+                }
+            } else {
+                const { balance } = await balanceRes.json();
+                const shortKey = account.publicKey
+                    .replace('-----BEGIN PUBLIC KEY-----\n', '')
+                    .replace('\n-----END PUBLIC KEY-----\n', '')
+                    .substring(0, 8);
+                console.log(`${shortKey}... : ${balance} tokens`);
+            }
+        } catch (error) {
+            console.error('Error fetching balance:', error.message);
+        }
     }
 }
 
 async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION") {
     try {
         let txData;
+        // Always send deposits and withdrawals to controller node (3001)
+        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" ? 3001 : nodePort;
         
         if (type === "DEPOSIT") {
             const timestamp = Date.now();
@@ -99,11 +142,16 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
             const timestamp = Date.now();
             const nonce = randomBytes(16).toString('hex');
 
-            // Create authorization signature
+            // Create both authorization and transaction signature
             const message = `${from.publicKey}:${amount}:${timestamp}:${nonce}`;
             const authorization = createHmac('sha256', process.env.NETWORK_SECRET)
                 .update(message)
                 .digest('hex');
+
+            // Create and sign transaction
+            const transaction = new Transaction(from.publicKey, null, amount);
+            transaction.timestamp = timestamp;
+            transaction.signTransaction(from.privateKey);
 
             txData = {
                 sender: from.publicKey,
@@ -112,6 +160,7 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
                 timestamp: timestamp,
                 nonce: nonce,
                 authorization: authorization,
+                signature: transaction.signature,  // Add the transaction signature
                 type: "WITHDRAW"
             };
         } else {
@@ -129,9 +178,8 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
             };
         }
 
-        // Always send deposits and withdrawals to controller node (3001)
-        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" ? 3001 : nodePort;
         
+        console.log(`Sending ${type} transaction to port ${targetPort}`);
         const txResponse = await fetch(`http://localhost:${targetPort}/transaction`, {
             method: 'POST',
             headers: {
@@ -144,15 +192,22 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         const result = await txResponse.json();
 
         if (!txResponse.ok) {
-            const error = await txResponse.json();
-            throw new Error(`Transaction failed: ${error.error}`);
+            throw new Error(`Transaction failed: ${result.error}`);
         }
 
         // Wait for mining and synchronization
         await new Promise(resolve => setTimeout(resolve, 2000));
 
+        // Only try to format address if 'from' exists
         const fromAddress = from ? formatAddress(from.publicKey) : 'DEPOSIT';
-        console.log(`Transaction successful: ${amount} tokens ${type === "WITHDRAW" ? "withdrawn from" : "sent from"} ${formatAddress(from.publicKey)}`);
+        // Adjust message based on transaction type
+        if (type === "DEPOSIT") {
+            console.log(`Transaction successful: ${amount} tokens deposited to ${formatAddress(to.publicKey)}`);
+        } else if (type === "WITHDRAW") {
+            console.log(`Transaction successful: ${amount} tokens withdrawn from ${fromAddress}`);
+        } else {
+            console.log(`Transaction successful: ${amount} tokens sent from ${fromAddress}`);
+        }
         return result;
     } catch (error) {
         console.error('Transaction error:', error.message);
@@ -162,32 +217,40 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
 
 async function checkNodesHealth(nodes) {
     console.log('\nChecking health of all nodes...');
+    let allHealthy = true;
+    
     for (let i = 0; i < nodes.length; i++) {
         const port = 3001 + i;
         try {
-            const health = await fetch(`http://localhost:${port}/health`, {
+            const response = await fetch(`http://localhost:${port}/health`, {
                 headers: { 'x-auth-token': process.env.NETWORK_SECRET }
-            }).then(res => res.json());
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const health = await response.json();
             
             console.log(`Node ${i + 1} (port ${port}):`);
-            console.log(`  Status: ${health.status}`);
-            console.log(`  Blocks: ${health.blockHeight} (${health.blockHeight - 1} transactions processed)`);
-            console.log(`  Connected Peers: ${health.peersCount}`);
+            console.log(`  Status: ${health.status || 'undefined'}`);
+            console.log(`  Type: ${health.nodeType}`);
+            console.log(`  Blocks: ${health.blockHeight || 0} (${(health.blockHeight || 1) - 1} transactions processed)`);
+            console.log(`  Connected Peers: ${health.peersCount || 0}`);
+            console.log(`  Pending Transactions: ${health.pendingTransactions || 0}`);
             
-            // Check if this node is in sync with others
-            if (i > 0) {
-                const mainNodeHealth = await fetch(`http://localhost:3001/health`, {
-                    headers: { 'x-auth-token': process.env.NETWORK_SECRET }
-                }).then(res => res.json());
-                
-                if (health.blockHeight !== mainNodeHealth.blockHeight) {
-                    console.log(`  WARNING: Node is out of sync! Main node height: ${mainNodeHealth.blockHeight}`);
-                }
+            if (health.status !== 'healthy') {
+                allHealthy = false;
+                console.log(`  WARNING: Node is unhealthy!`);
             }
         } catch (error) {
+            allHealthy = false;
             console.log(`Node ${i + 1} (port ${port}): OFFLINE or ERROR`);
+            console.error(`  Error details: ${error.message}`);
         }
     }
+    
+    return allHealthy;
 }
 
 function formatAddress(publicKey) {
@@ -255,12 +318,7 @@ async function main() {
         nodeType: NodeType.VALIDATOR,
         genesisBalances
     }).initialize();
-    // Start other nodes
-    // const otherNodes = await Promise.all([
-    //     new Node(3002, ['localhost:3001'], { genesisBalances }).initialize(),
-    //     new Node(3003, ['localhost:3001'], { genesisBalances }).initialize(),
-    //     new Node(3004, ['localhost:3001'], { genesisBalances }).initialize()
-    // ]);
+
     
     const nodes = [controllerNode, ...smeNodes, validatorNode];
     
@@ -274,6 +332,7 @@ async function main() {
     // Series of transactions
     const transactions = [
         { from: null, to: alice, amount: 1000, message: 'Controller node deposits 1000 to Alice', type: "DEPOSIT" },
+        { from: alice, to: null, amount: 100, message: 'Alice withdraws 100', type: "WITHDRAW" },
         { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" },
         { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
         { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
