@@ -86,6 +86,81 @@ By integrating these security measures, the blockchain system maintains robustne
 
 ---
 
+
+### Deploying Nodes
+
+To deploy nodes in the blockchain network, instantiate the `Node` class with the appropriate configurations. Below are examples of deploying a **Controller Node** and a **Validator Node**.
+
+#### Controller Node
+
+A Controller Node manages the network, handles high-level operations, and oversees functionalities such as minting tokens and managing rate limits.
+
+```javascript
+const node = new Node({
+    host: 'localhost',
+    port: 3001,
+    nodeType: NodeType.CONTROLLER,
+    seedNodes: ['http://localhost:3002', 'http://localhost:3003']
+});
+```
+
+**Configuration Options:**
+
+- `host`: Specifies the hostname or IP address where the node will run. For local deployments, use `'localhost'`.
+- `port`: Defines the port number on which the node will listen for incoming connections.
+- `nodeType`: Determines the role of the node. Use `NodeType.CONTROLLER` for Controller Nodes.
+- `seedNodes`: An array of seed node URLs that the Controller Node will use to discover and connect with other peers in the network.
+
+#### Validator Node
+
+Validator Nodes are responsible for validating transactions and blocks, ensuring the integrity and security of the blockchain.
+
+```javascript
+const node = new Node({
+    host: 'validator1.blockchain.example.com',
+    port: 443,
+    protocol: 'https',
+    nodeType: NodeType.VALIDATOR,
+    seedNodes: [
+        'https://seed1.blockchain.example.com',
+        'https://seed2.blockchain.example.com'
+    ]
+});
+```
+
+**Configuration Options:**
+
+- `host`: The domain name or IP address of the Validator Node. For production environments, use a fully qualified domain name.
+- `port`: The port number on which the Validator Node will accept secure (HTTPS) connections.
+- `protocol`: Specifies the communication protocol. Use `'https'` to ensure encrypted communication in production.
+- `nodeType`: Sets the role of the node. Use `NodeType.VALIDATOR` for Validator Nodes.
+- `seedNodes`: An array of seed node URLs that the Validator Node will connect to for network synchronization and peer discovery.
+
+#### Deployment Steps
+
+1. **Install Dependencies**: Ensure that all necessary dependencies are installed by running:
+   ```bash
+   npm install
+   ```
+
+2. **Configure Environment Variables**: Set up the required environment variables, such as `NETWORK_SECRET`, to secure inter-node communications.
+
+3. **Initialize the Node**: Use one of the above configurations to instantiate the `Node` class based on the desired role.
+
+4. **Start the Node**: Launch the node by running:
+   ```bash
+   node node.js
+   ```
+   Replace `node.js` with the actual entry point of your application if different.
+
+5. **Monitor Logs**: Keep an eye on the console logs to ensure that the node starts correctly and connects to the specified seed nodes.
+
+By following these configurations and steps, you can effectively deploy Controller and Validator Nodes within your blockchain network, ensuring a secure and well-synchronized system.
+
+
+```
+
+
 ### Implementation Details
 
 #### 1. **Blockchain Class**

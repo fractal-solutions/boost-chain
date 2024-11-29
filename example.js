@@ -278,14 +278,14 @@ async function main() {
     
 
     // Start controller node first
-    const controllerNode = await new Node(3001, [], {
+    const controllerNode = await new Node({
+        host: 'localhost',
+        port: 3001,
         nodeType: NodeType.CONTROLLER,
+        seedNodes: [],
         genesisBalances
     }).initialize();
     console.log('Controller node started on port 3001');
-    // // Start main node first
-    // const mainNode = await new Node(3001, [], { genesisBalances }).initialize();
-    // console.log('Main node started on port 3001');
     
     
     // Wait for main node to be ready
@@ -293,8 +293,11 @@ async function main() {
  
     // Start SME nodes
     const smeNodes = await Promise.all([
-        new Node(3002, ['localhost:3001'], {
+        new Node({
+            host: 'localhost',
+            port: 3002,
             nodeType: NodeType.SME,
+            seedNodes: ['localhost:3001'],
             genesisBalances,
             businessInfo: {
                     name: "SME_1",
@@ -302,8 +305,11 @@ async function main() {
                     established: "2020"
             }
         }).initialize(),
-        new Node(3003, ['localhost:3001'], {
+        new Node({
+            host: 'localhost',
+            port: 3003,
             nodeType: NodeType.SME,
+            seedNodes: ['localhost:3001'],
             genesisBalances,
             businessInfo: {
                 name: "SME_2",
@@ -314,8 +320,11 @@ async function main() {
     ]);
 
     // Start validator node
-    const validatorNode = await new Node(3004, ['localhost:3001'], {
+    const validatorNode = await new Node({
+        host: 'localhost',
+        port: 3004,
         nodeType: NodeType.VALIDATOR,
+        seedNodes: ['localhost:3001'],
         genesisBalances
     }).initialize();
 
@@ -349,45 +358,47 @@ async function main() {
         { from: bob, to: dave, amount: 200, message: 'Bob sends 200 to Dave', type: "TRANSACTION" }
     ];
 
-// Execute each transaction
-for (const tx of transactions) {
-    console.log(`\nExecuting transaction: ${tx.message}`);
-    const ports = [3001, 3002, 3003, 3004];
-    const randomPort = ports[Math.floor(Math.random() * ports.length)];
-    const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort, tx.type);
-    
-    if (result.error) {
-        console.log(`Transaction failed: ${result.error}`);
-        if (result.balance !== undefined) {
-            console.log(`Available balance: ${result.balance}, Attempted: ${result.attempted}`);
+    while (true) {
+    // Execute each transaction
+        for (const tx of transactions) {
+            console.log(`\nExecuting transaction: ${tx.message}`);
+            const ports = [3001, 3002, 3003, 3004];
+            const randomPort = ports[Math.floor(Math.random() * ports.length)];
+            const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort, tx.type);
+            
+            if (result.error) {
+                console.log(`Transaction failed: ${result.error}`);
+                if (result.balance !== undefined) {
+                    console.log(`Available balance: ${result.balance}, Attempted: ${result.attempted}`);
+                }
+            } else {
+                console.log('Transaction successful');
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 2000));
+                await displayChainState(3001, 'Updated blockchain state:');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+                await checkAllBalances(3001);
+            
+            // Wait a bit between transactions regardless of success/failure
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Check mining rewards
+            console.log('\nNode Balances:');
+            for (const port of [3001, 3002, 3003, 3004]) {
+                const node = nodes[port - 3001];
+                const balance = await fetch(`http://localhost:${port}/balance?address=${encodeURIComponent(node.wallet.publicKey)}`,
+                        { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+                        ).then(res => res.json()).then(data => data.balance);
+                console.log(`Node ${port}: ${balance} tokens (from mining)`);
+            }
         }
-    } else {
-        console.log('Transaction successful');
+
+        const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
+        await checkNodesHealth(nodes);
+
+        console.log('\nTransaction series complete. Monitoring node health...');
+        console.log('Press Ctrl+C to exit.');
     }
-    
-    await new Promise(resolve => setTimeout(resolve, 2000));
-        await displayChainState(3001, 'Updated blockchain state:');
-    await new Promise(resolve => setTimeout(resolve, 2000));
-        await checkAllBalances(3001);
-    
-    // Wait a bit between transactions regardless of success/failure
-    await new Promise(resolve => setTimeout(resolve, 1000));
-        // Check mining rewards
-        console.log('\nNode Balances:');
-        for (const port of [3001, 3002, 3003, 3004]) {
-            const node = nodes[port - 3001];
-            const balance = await fetch(`http://localhost:${port}/balance?address=${encodeURIComponent(node.wallet.publicKey)}`,
-                { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
-            ).then(res => res.json()).then(data => data.balance);
-            console.log(`Node ${port}: ${balance} tokens (from mining)`);
-        }
-}
-
-    const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
-    await checkNodesHealth(nodes);
-
-    console.log('\nTransaction series complete. Monitoring node health...');
-    console.log('Press Ctrl+C to exit.');
 
     // Handle cleanup on exit
     process.on('SIGINT', () => {

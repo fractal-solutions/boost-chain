@@ -19,9 +19,42 @@ export function generateKeyPair() {
 }
 
 export class Node {
-    constructor(port, seedNodes = [], options = {}) {
-        this.port = port;
-        this.seedNodes = seedNodes;
+    constructor(options = {}) {
+        this.nodeConfig = {
+            // Network configuration
+            host: options.host || 'localhost',
+            port: options.port || 3000,
+            protocol: options.protocol || 'http',
+            
+            // Node identity
+            nodeId: randomBytes(32).toString('hex'),
+            nodeType: options.nodeType || NodeType.VALIDATOR,
+            
+            // Network discovery
+            seedNodes: options.seedNodes || [],
+            discoveryInterval: options.discoveryInterval || 60000,
+            
+            // Rate limiting
+            rateLimits: {
+                CONTROLLER: {
+                    sync: 500,      // Chain syncs
+                    transaction: 200, // Transaction processing
+                    balance: 200,    // Balance checks
+                    health: 100,     // Health checks
+                    other: 100       // Other requests
+                },
+                DEFAULT: {
+                    sync: 50,
+                    transaction: 20,
+                    balance: 20,
+                    health: 10,
+                    other: 10
+                }
+            }
+        };
+        this.host = this.nodeConfig.host;
+        this.port = this.nodeConfig.port;
+        this.seedNodes = this.nodeConfig.seedNodes;
         this.peers = new Map();
         this.rateLimit = new Map(); 
         this.nodeId = randomBytes(32).toString('hex');
@@ -30,7 +63,7 @@ export class Node {
         this.wallet = options.wallet || generateKeyPair();
 
 
-        this.nodeType = options.nodeType || NodeType.VALIDATOR; // Default to validator
+        this.nodeType = this.nodeConfig.nodeType || NodeType.VALIDATOR; // Default to validator
         this.nodeId = randomBytes(32).toString('hex');
         this.permissions = this.initializePermissions();
 
@@ -134,6 +167,10 @@ export class Node {
         }
     }
 
+    getNodeAddress() {
+        return `${this.nodeConfig.protocol}://${this.nodeConfig.host}:${this.nodeConfig.port}`;
+    }
+
     async registerWithSeedNodes() {
         for (const seedNode of this.seedNodes) {
             let attempts = 0;
@@ -141,7 +178,7 @@ export class Node {
             
             while (attempts < maxAttempts) {
                 try {
-                    console.log(`Node ${this.port}: Attempting to register with seed node ${seedNode} (attempt ${attempts + 1})`);
+                    console.log(`Node ${this.host}:${this.port}: Attempting to register with seed node ${seedNode} (attempt ${attempts + 1})`);
                     
                     const response = await fetch(`http://${seedNode}/new-peer`, {
                         method: 'POST',
@@ -150,12 +187,12 @@ export class Node {
                             'x-auth-token': process.env.NETWORK_SECRET
                         },
                         body: JSON.stringify({
-                            peerAddress: `localhost:${this.port}`
+                            peerAddress: `${this.host}:${this.port}`
                         })
                     });
     
                     if (response.ok) {
-                        console.log(`Node ${this.port}: Successfully registered with seed node ${seedNode}`);
+                        console.log(`Node ${this.host}:${this.port}: Successfully registered with seed node ${seedNode}`);
                         // Add the seed node to our peers list
                         this.peers.set(seedNode, true);
                         break; // Success, exit the retry loop
@@ -165,9 +202,9 @@ export class Node {
                 } catch (error) {
                     attempts++;
                     if (attempts === maxAttempts) {
-                        console.error(`Node ${this.port}: Failed to register with seed node ${seedNode} after ${maxAttempts} attempts:`, error.message);
+                        console.error(`Node ${this.host}:${this.port}: Failed to register with seed node ${seedNode} after ${maxAttempts} attempts:`, error.message);
                     } else {
-                        console.log(`Node ${this.port}: Retrying registration with ${seedNode} in 1 second...`);
+                        console.log(`Node ${this.host}:${this.port}: Retrying registration with ${seedNode} in 1 second...`);
                         await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                 }
@@ -189,47 +226,74 @@ export class Node {
     }
 
     async connectToSeedNodes() {
-        console.log(`Node ${this.port} connecting to seed nodes...`);
+        console.log(`Node ${this.host}:${this.port} connecting to seed nodes...`);
         for (const seed of this.seedNodes) {
             try {
                 await this.addPeer(seed);
             } catch (error) {
-                console.error(`Failed to connect to seed node ${seed}:`, error.message);
+                console.error(`Node ${this.host}:${this.port}: Failed to connect to seed node ${seed}:`, error.message);
             }
         }
     }
 
     async discoverPeers() {
-        if (this.peers.size >= this.maxPeers) return;
+        //if (this.peers.size >= this.maxPeers) return;
 
-        console.log('Starting peer discovery...');
+        console.log(`Node ${this.host}:${this.port}: Starting peer discovery...`);
         
-        // Ask existing peers for their peer lists
-        for (const [peerAddress] of this.peers) {
-            try {
-                const response = await fetch(`http://${peerAddress}/peers`, {
-                    headers: {
-                        'x-auth-token': process.env.NETWORK_SECRET,
-                        'x-node-id': this.nodeId
-                    }
-                });
-                
-                if (!response.ok) continue;
-                
-                const { peers } = await response.json();
-                
-                for (const newPeer of peers) {
-                    if (this.peers.size >= this.maxPeers) break;
-                    if (newPeer === `localhost:${this.port}`) continue; // Skip self
-                    if (this.peers.has(newPeer)) continue; // Skip existing peers
+        setInterval(async () => {
+            for (const seedNode of this.seedNodes) {
+                try {
+                    const response = await fetch(`http://${seedNode}/peers`, {
+                        headers: { 'x-auth-token': process.env.NETWORK_SECRET }
+                    });
+                    if (!response.ok) continue;
                     
-                    await this.addPeer(newPeer);
+                    const peers = await response.json();
+                    if (Array.isArray(peers)) {
+                        peers.forEach(peer => {
+                            const peerAddress = `${peer.host}:${peer.port}`;
+                            if (peerAddress !== `${this.host}:${this.port}`) {
+                                this.peers.set(peerAddress, {
+                                    host: peer.host,
+                                    port: peer.port,
+                                    nodeType: peer.nodeType,
+                                    lastSeen: Date.now()
+                                });
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Node ${this.port}: Failed to discover peers from ${seedNode}:`, error.message);
                 }
-            } catch (error) {
-                console.error(`Failed to discover peers from ${peerAddress}:`, error);
+            }
+        }, this.nodeConfig.discoveryInterval);
+    }
+
+    async handleGetPeers(req) {
+        return new Response(JSON.stringify(
+            Array.from(this.peers.values()).map(peer => ({
+                host: peer.host,
+                port: peer.port,
+                nodeType: peer.nodeType
+            }))
+        ), {
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    updatePeers(newPeers) {
+        for (const peer of newPeers) {
+            if (peer.address !== this.getNodeAddress()) {
+                this.peers.set(peer.nodeId, {
+                    address: peer.address,
+                    nodeType: peer.nodeType,
+                    lastSeen: Date.now()
+                });
             }
         }
     }
+
 
     startLocalDiscovery() {
         // Instead of UDP broadcast, we'll scan common local ports
@@ -290,14 +354,15 @@ export class Node {
 
             if (response.ok) {
                 this.peers.set(peerAddress, {
+                    address: peerAddress,  // Store the full address
                     lastSeen: Date.now(),
                     nodeId: (await response.json()).nodeId
                 });
-                console.log(`Node ${this.port} added peer: ${peerAddress}`);
+                console.log(`Node ${this.host}:${this.port} added peer: ${peerAddress}`);
                 await this.syncWithPeers();
             }
         } catch (error) {
-            console.error(`Failed to connect to peer ${peerAddress}:`, error.message);
+            console.error(`Node ${this.host}:${this.port}: Failed to connect to peer ${peerAddress}:`, error.message);
         }
     }
 
@@ -354,8 +419,13 @@ export class Node {
         try {
             const { peerAddress } = await req.json();
             if (!this.peers.has(peerAddress) && this.peers.size < this.maxPeers) {
-                this.peers.set(peerAddress, true);
-                console.log(`Node ${this.port}: Added new peer ${peerAddress}`);
+                this.peers.set(peerAddress, {
+                    address: peerAddress,
+                    host: 'localhost', // Or extract from peerAddress
+                    port: peerAddress.split(':')[1],
+                    lastSeen: Date.now()
+                });
+                console.log(`Node ${this.host}:${this.port}: Added new peer ${peerAddress}`);
             }
             return new Response(JSON.stringify({ 
                 message: "Peer added",
@@ -911,13 +981,13 @@ export class Node {
         }
     }
 
-    async handleGetPeers(req) {
-        return new Response(JSON.stringify({
-            peers: Array.from(this.peers.keys())
-        }), {
-            headers: { "Content-Type": "application/json" }
-        });
-    }
+    // async handleGetPeers(req) {
+    //     return new Response(JSON.stringify({
+    //         peers: Array.from(this.peers.keys())
+    //     }), {
+    //         headers: { "Content-Type": "application/json" }
+    //     });
+    // }
 
     async handleHealthCheck(req) {
         try {
@@ -1145,9 +1215,14 @@ export class Node {
             let syncedWithPeer = false;
     
             // Get all peer chains
-            for (const [peerAddress] of this.peers) {
+            for (const [peerAddress, peerInfo] of this.peers) {
+                if (!peerAddress || peerAddress.includes(undefined)){
+                    console.log(`Node ${this.host}:${this.port}: Skipping invalid peer address: ${peerAddress}`);
+                    this.peers.delete(peerAddress);
+                    continue;
+                }
                 try {
-                    console.log(`Node ${this.port}: Syncing with peer ${peerAddress}`);
+                    console.log(`Node ${this.host}:${this.port}: Syncing with peer ${peerAddress}`);
                     const response = await fetch(`http://${peerAddress}/chain`, {
                         headers: { 
                             'x-auth-token': process.env.NETWORK_SECRET,
@@ -1156,7 +1231,7 @@ export class Node {
                     });
                     
                     if (!response.ok) {
-                        console.log(`Node ${this.port}: Failed to get chain from ${peerAddress}, status: ${response.status}`);
+                        console.log(`Node ${this.host}:${this.port}: Failed to get chain from ${peerAddress}, status: ${response.status}`);
                         continue;
                     }
                     
@@ -1164,7 +1239,7 @@ export class Node {
                     
                     // Skip if peer chain is empty or invalid
                     if (!Array.isArray(peerChainData) || peerChainData.length === 0) {
-                        console.log(`Node ${this.port}: Invalid chain data from ${peerAddress}`);
+                        console.log(`Node ${this.host}:${this.port}: Invalid chain data from ${peerAddress}`);
                         continue;
                     }
     
@@ -1176,10 +1251,10 @@ export class Node {
                         longestChain = reconstructedChain;
                         maxHeight = reconstructedChain.length;
                         syncedWithPeer = true;
-                        console.log(`Node ${this.port}: Found longer valid chain from ${peerAddress} (${maxHeight} blocks)`);
+                        console.log(`Node ${this.host}:${this.port}: Found longer valid chain from ${peerAddress} (${maxHeight} blocks)`);
                     }
                 } catch (error) {
-                    console.error(`Node ${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
+                    console.error(`Node ${this.host}:${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
                 }
             }
     
@@ -1187,14 +1262,14 @@ export class Node {
             if (syncedWithPeer && maxHeight > this.blockchain.chain.length) {
                 const oldLength = this.blockchain.chain.length;
                 this.blockchain.chain = longestChain;
-                console.log(`Node ${this.port}: Updated chain from height ${oldLength} to ${maxHeight}`);
+                console.log(`Node ${this.host}:${this.port}: Updated chain from height ${oldLength} to ${maxHeight}`);
                 return true;
             }
             
-            console.log(`Node ${this.port}: Already on longest chain (height: ${this.blockchain.chain.length})`);
+            console.log(`Node ${this.host}:${this.port}: Already on longest chain (height: ${this.blockchain.chain.length})`);
             return false;
         } catch (error) {
-            console.error(`Node ${this.port}: Sync error:`, error.message);
+            console.error(`Node ${this.host}:${this.port}: Sync error:`, error.message);
             return false;
         }
     }
@@ -1202,7 +1277,7 @@ export class Node {
    
     async mineIfNeeded() {
         if (this.blockchain.pendingTransactions.length > 0) {
-            console.log(`Node ${this.port}: Mining block with ${this.blockchain.pendingTransactions.length} transactions`);
+            console.log(`Node ${this.host}:${this.port}: Mining block with ${this.blockchain.pendingTransactions.length} transactions`);
             
             try {
                 // Create mining reward transaction
@@ -1216,13 +1291,13 @@ export class Node {
                 this.blockchain.pendingTransactions.push(rewardTx);
                 
                 const newBlock = this.blockchain.minePendingTransactions();
-                console.log(`Node ${this.port}: Mined new block ${newBlock.hash.substring(0, 10)}`);
-                console.log(`Node ${this.port}: Earned mining reward of ${this.blockchain.miningReward} tokens`);
+                console.log(`Node ${this.host}:${this.port}: Mined new block ${newBlock.hash.substring(0, 10)}`);
+                console.log(`Node ${this.host}:${this.port}: Earned mining reward of ${this.blockchain.miningReward} tokens`);
                 
                 await this.broadcastBlock(newBlock);
-                console.log(`Node ${this.port}: Broadcasted block to peers`);
+                console.log(`Node ${this.host}:${this.port}: Broadcasted block to peers`);
             } catch (error) {
-                console.error(`Node ${this.port}: Mining failed:`, error);
+                console.error(`Node ${this.host}:${this.port}: Mining failed:`, error);
             }
         }
     }
