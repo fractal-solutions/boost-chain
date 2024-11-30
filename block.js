@@ -19,9 +19,9 @@ export class Block {
                     sender: tx.sender,
                     recipient: tx.recipient,
                     amount: Number(tx.amount),
-                    timestamp: tx.timestamp,
-                    signature: tx.signature,
-                    type: tx.type
+                    timestamp: tx.timestamp//,
+                    //signature: tx.signature,
+                    //type: tx.type
                 }));
             }
     

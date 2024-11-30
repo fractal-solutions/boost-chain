@@ -64,7 +64,7 @@ async function displayChainState(nodePort, message) {
                 const formattedSenderKey = senderKey ? `${senderKey.substring(0,8)}...${senderKey.substring(senderKey.length-8)}` : '';
                 const formattedRecipientKey = recipientKey ? `${recipientKey.substring(0,8)}...${recipientKey.substring(recipientKey.length-8)}` : '';
 
-                console.log(`\n   Transaction #${index + 1}`);
+                console.log(`   Transaction #${index + 1}`);
                 console.log(`   ├─ Type: ${tx.amount > 0 ? 'Transfer' : 'System'}`);
                 console.log(`   ├─ From: ${senderKey ? `${formattedSenderKey}` : 'SYSTEM'}`);
                 console.log(`   ├─ To:   ${recipientKey ? `${formattedRecipientKey}` : 'SYSTEM'}`);
@@ -174,8 +174,9 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
                 timestamp: timestamp,
                 nonce: nonce,
                 authorization: authorization,
-                signature: transaction.signature,  // Add the transaction signature
-                type: "WITHDRAW"
+                type: "WITHDRAW",
+                signature: transaction.signature 
+                
             };
         } else {
             // For non-DEPOSIT/WITHDRAW transactions, check if sender has enough balance for both amount and fee
@@ -416,25 +417,27 @@ async function main() {
     const transactions = [
         { from: null, to: alice, amount: 1000, message: 'Controller node deposits 1000 to Alice', type: "DEPOSIT" },
         { from: alice, to: null, amount: 100, message: 'Alice withdraws 100', type: "WITHDRAW" },
-        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" },
-        { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
-        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
-        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSACTION" },
-        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSACTION" },
-        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSACTION" },
-        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSACTION" },
-        { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob', type: "TRANSACTION"  },
-        { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has', type: "TRANSACTION" },
-        { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice', type: "TRANSACTION" },
-        { from: charlie, to: bob, amount: 175, message: 'Charlie sends 175 to Bob', type: "TRANSACTION" },
-        { from: dave, to: charlie, amount: 100, message: 'Dave sends 100 to Charlie', type: "TRANSACTION" },
-        { from: alice, to: charlie, amount: 150, message: 'Alice sends 150 to Charlie', type: "TRANSACTION" },
-        { from: bob, to: dave, amount: 200, message: 'Bob sends 200 to Dave', type: "TRANSACTION" }
+        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" }
+        // { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
+        // { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
+        // { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSACTION" },
+        // { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSACTION" },
+        // { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSACTION" },
+        // { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSACTION" },
+        // { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob', type: "TRANSACTION"  },
+        // { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has', type: "TRANSACTION" },
+        // { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice', type: "TRANSACTION" },
+        // { from: charlie, to: bob, amount: 175, message: 'Charlie sends 175 to Bob', type: "TRANSACTION" },
+        // { from: dave, to: charlie, amount: 100, message: 'Dave sends 100 to Charlie', type: "TRANSACTION" },
+        // { from: alice, to: charlie, amount: 150, message: 'Alice sends 150 to Charlie', type: "TRANSACTION" },
+        // { from: bob, to: dave, amount: 200, message: 'Bob sends 200 to Dave', type: "TRANSACTION" }
     ];
 
+    let count = 0;
     while (true) {
     // Execute each transaction
         for (const tx of transactions) {
+            console.log('\n' + '='.repeat(80) + '\n');
             console.log(`\nExecuting transaction: ${tx.message}`);
             const ports = [3001, 3002, 3003, 3004];
             const randomPort = ports[Math.floor(Math.random() * ports.length)];
@@ -471,6 +474,17 @@ async function main() {
 
         const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
         await checkNodesHealth(nodes);
+
+        // Start new validator node
+        console.log(`\nStarting new validator node on port ${3005 + count}`);
+        const newNode = await new Node({
+            host: 'localhost',
+            port: 3005 + count,
+            nodeType: NodeType.VALIDATOR,
+            seedNodes: ['localhost:3001'],
+            genesisBalances
+        }).initialize();
+        count++;
 
         console.log('\nTransaction series complete. Monitoring node health...');
         console.log('Press Ctrl+C to exit.');

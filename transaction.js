@@ -10,18 +10,18 @@ export class Transaction {
         this.type = type;
     }
 
-    calculateHashX() {
+    calculateHash() {
         const data = JSON.stringify({
             sender: this.sender,
             recipient: this.recipient,
             amount: this.amount,
-            timestamp: this.timestamp,
-            type: this.type  // Add this line
+            timestamp: this.timestamp
         });
+        //console.log("PreHASH data:", data);
         return createHash("sha256").update(data).digest("hex");
     }
 
-    calculateHash() {
+    calculateHashX() {
         const data = this.sender + this.recipient + this.amount + this.timestamp;
         return createHash("sha256").update(data).digest("hex");
     }
@@ -49,7 +49,7 @@ export class Transaction {
     }
 
     isValid() {
-        if (this.skipSignatureValidation || this.type === "FEE") {
+        if (this.type === "FEE" || this.skipSignatureValidation) {
             return true;
         }
         // Genesis transaction or mining reward

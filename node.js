@@ -59,6 +59,7 @@ export class Node {
         this.rateLimit = new Map(); 
         this.nodeId = randomBytes(32).toString('hex');
         this.maxPeers = options.maxPeers || 10;
+        this.options = options;
 
         this.wallet = options.wallet || generateKeyPair();
         this.transactionFee = options.transactionFee || 0.01;
@@ -99,10 +100,11 @@ export class Node {
             paymentHistory: [],
             lastActivity: Date.now()
         } : null;
+
+        this.blockchain = new Blockchain(); // Don't create genesis block yet
+        this.initialized = false;
         
-        // Initialize blockchain with genesis block
         if (options.genesisBalances) {
-            // Sort transactions to ensure consistent genesis block across all nodes
             const genesisTransactions = Object.entries(options.genesisBalances)
                 .sort(([addr1], [addr2]) => addr1.localeCompare(addr2))
                 .map(([address, amount]) => {
@@ -115,6 +117,7 @@ export class Node {
         } else {
             this.blockchain = new Blockchain();
         }
+
         
         
         
@@ -123,13 +126,11 @@ export class Node {
 
     async initialize() {
         await this.setupServer();
-        console.log(`Node ${this.port}: Server started`);
-        this.registerWithSeedNodes();
-
-        // Wait a moment before trying to register with seed nodes
+        console.log(`Node ${this.port}: Server started`); 
         if (this.seedNodes.length > 0) {
             // Wait for seed nodes to be ready
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            //await new Promise(resolve => setTimeout(resolve, 1000));
+            await this.initialSync();
             await this.registerWithSeedNodes();
         }
 
@@ -144,6 +145,46 @@ export class Node {
 
         return this;
        
+    }
+
+    async initialSync() {
+        let synced = false;
+        let attempts = 0;
+        const maxAttempts = 3;
+    
+        while (!synced && attempts < maxAttempts) {
+            try {
+                for (const seedNode of this.seedNodes) {
+                    console.log(`Node ${this.port}: Attempting initial sync from ${seedNode}`);
+                    const response = await fetch(`http://${seedNode}/chain`, {
+                        headers: { 'x-auth-token': process.env.NETWORK_SECRET }
+                    });
+    
+                    if (!response.ok) continue;
+    
+                    const chainData = await response.json();
+                    if (chainData && chainData.length > 0) {
+                        const reconstructedChain = this.reconstructChain(chainData);
+                        if (this.blockchain.isValidChain(reconstructedChain)) {
+                            this.blockchain.chain = reconstructedChain;
+                            console.log(`Node ${this.port}: Initial sync successful, chain height: ${this.blockchain.chain.length}`);
+                            synced = true;
+                            break;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error(`Node ${this.port}: Initial sync attempt ${attempts + 1} failed:`, error.message);
+            }
+            attempts++;
+            if (!synced && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    
+        if (!synced) {
+            console.log(`Node ${this.port}: Initial sync failed, starting with genesis block`);
+        }
     }
 
     initializePermissions() {
@@ -537,7 +578,7 @@ export class Node {
                         transaction.skipSignatureValidation = true; 
                     }
                     
-                    console.log("Txn:", transaction);
+                    //console.log("Txn:", transaction);
                     return transaction;
                 });
 
@@ -952,7 +993,7 @@ export class Node {
         try {
             const blockData = await req.json();
             console.log(`Node ${this.port}: Received new block with hash ${blockData.hash.substring(0, 10)}`);
-            console.log('Block data:', blockData);
+            //console.log('Block data:', blockData);
             
             // Validate block structure first
             if (!blockData || !blockData.hash || !blockData.previousHash || !Array.isArray(blockData.transactions)) {
@@ -961,6 +1002,13 @@ export class Node {
     
             // Reconstruct and validate the block
             const block = this.reconstructBlock(blockData);
+
+            // If we're far behind, trigger a full sync instead of processing individual blocks
+            if (block.index > this.blockchain.chain.length + 1) {
+                console.log(`Node ${this.port}: Received block ${block.index} but current height is ${this.blockchain.chain.length}, triggering sync`);
+                await this.syncWithPeers();
+                return;
+            }
             
             // Validate block connects to our chain
             const latestBlock = this.blockchain.getLatestBlock();
@@ -1033,8 +1081,7 @@ export class Node {
     reconstructChain(chainData) {
         return chainData.map(blockData => {
             const transactions = blockData.transactions.map(txData => {
-                const tx = new Transaction(txData.sender, txData.recipient, txData.amount);
-                tx.timestamp = txData.timestamp;
+                const tx = new Transaction(txData.sender, txData.recipient, txData.amount, txData.timestamp, txData.type);
                 tx.signature = txData.signature;
                 return tx;
             });
@@ -1441,7 +1488,7 @@ export class Node {
             let syncedWithPeer = false;
     
             // Get all peer chains
-            for (const [peerAddress, peerInfo] of this.peers) {
+            for (const [peerAddress] of this.peers) {
                 if (!peerAddress || peerAddress.includes(undefined)){
                     console.log(`Node ${this.host}:${this.port}: Skipping invalid peer address: ${peerAddress}`);
                     this.peers.delete(peerAddress);

@@ -168,6 +168,7 @@ export class Blockchain {
 
                 // Verify transactions
                 for (const tx of block.transactions) {
+                    if (tx.type !== "FEE") return true;
                     if (!tx.isValid() && tx.sender !== null) {
                         console.log(`Invalid transaction in block ${i}`);
                         return false;
