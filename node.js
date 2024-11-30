@@ -61,6 +61,7 @@ export class Node {
         this.maxPeers = options.maxPeers || 10;
 
         this.wallet = options.wallet || generateKeyPair();
+        this.transactionFee = options.transactionFee || 0.01;
 
 
         this.nodeType = this.nodeConfig.nodeType || NodeType.VALIDATOR; // Default to validator
@@ -397,6 +398,8 @@ export class Node {
                                 return await this.handleGetBalance(req);
                             case req.method === "POST" && url.pathname === "/mine":
                                 return await this.handleMine(req);
+                            case req.method === "GET" && url.pathname === "/get-key":
+                                return await this.handleGetPublicKey(req);
                             default:
                                 return new Response(JSON.stringify({ error: "Not Found" }), {
                                     status: 404,
@@ -502,6 +505,47 @@ export class Node {
             console.log("Received transaction request");
             const data = await req.json();
             console.log("Parsed request data:", data);
+
+            // Transaction hash checking to prevent duplicates
+            // Create Transaction object from request data
+            const txn = new Transaction(
+                data.sender,
+                data.recipient,
+                data.amount,
+                data.timestamp,
+                data.type
+            );
+            
+            // Copy over any additional properties
+            if (data.signature) txn.signature = data.signature;
+            if (data.nonce) txn.nonce = data.nonce;
+            if (data.authorization) txn.authorization = data.authorization;
+
+            // Now we can use transaction methods
+            const txHash = txn.calculateHash();
+
+            // Check if transaction is already in pending or in recent blocks
+            if (this.blockchain.pendingTransactions.some(tx => tx.calculateHash() === txHash)) {
+                return new Response(JSON.stringify({ 
+                    message: "Transaction already pending" 
+                }), {
+                    headers: { "Content-Type": "application/json" }
+                });
+            }
+
+            // Check last N blocks for this transaction
+            const recentBlocks = this.blockchain.chain.slice(-10); // Last 10 blocks
+            const isProcessed = recentBlocks.some(block => 
+                block.transactions.some(tx => tx.calculateHash() === txHash)
+            );
+            
+            if (isProcessed) {
+                return new Response(JSON.stringify({ 
+                    message: "Transaction already processed" 
+                }), {
+                    headers: { "Content-Type": "application/json" }
+                });
+            }
 
             // Validate transaction type and permissions
             // Special handling for deposits through controller node
@@ -653,7 +697,7 @@ export class Node {
     
                 // Check balance Node Agnostic
                 const senderBalance = this.blockchain.getBalance(transaction.sender);
-                if (data.type !== 'DEPOSIT' &&senderBalance < transaction.amount) {
+                if (data.type !== 'DEPOSIT' &&senderBalance < transaction.amount + (transaction.amount * this.transactionFee)) {
                     return new Response(JSON.stringify({ 
                         error: "Insufficient balance",
                         status: "rejected",
@@ -1014,6 +1058,24 @@ export class Node {
         }
     }
 
+    async handleGetPublicKey(req) {
+        try {
+            return new Response(JSON.stringify({ 
+                publicKey: this.wallet.publicKey 
+            }), {
+                headers: { "Content-Type": "application/json" }
+            });
+        } catch (error) {
+            return new Response(JSON.stringify({ 
+                error: "Error retrieving public key",
+                details: error.message 
+            }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+    }
+
     async broadcastTransaction(transaction) {
         const promises = Array.from(this.peers.values()).map(peer => 
             fetch(`${peer}/transaction`, {
@@ -1276,26 +1338,17 @@ export class Node {
 
    
     async mineIfNeeded() {
-        if (this.blockchain.pendingTransactions.length > 0) {
-            console.log(`Node ${this.host}:${this.port}: Mining block with ${this.blockchain.pendingTransactions.length} transactions`);
-            
+        if (this.blockchain.pendingTransactions.length > 0 ) {
+            console.log(`Node ${this.host}:${this.port}: Mining block with ${this.blockchain.pendingTransactions.length} transactions`);          
             try {
-                // Create mining reward transaction
-                const rewardTx = new Transaction(
-                    null,  // null sender for rewards
-                    this.wallet.publicKey,  // reward goes to node's wallet
-                    this.blockchain.miningReward
-                );
-                
-                // Add reward transaction to pending transactions
-                this.blockchain.pendingTransactions.push(rewardTx);
-                
-                const newBlock = this.blockchain.minePendingTransactions();
-                console.log(`Node ${this.host}:${this.port}: Mined new block ${newBlock.hash.substring(0, 10)}`);
-                console.log(`Node ${this.host}:${this.port}: Earned mining reward of ${this.blockchain.miningReward} tokens`);
-                
-                await this.broadcastBlock(newBlock);
-                console.log(`Node ${this.host}:${this.port}: Broadcasted block to peers`);
+                const newBlock = this.blockchain.minePendingTransactions(this.wallet.publicKey);
+                if (newBlock) {
+                    console.log(`Node ${this.host}:${this.port}: Mined new block ${newBlock.hash.substring(0, 10)}`);
+                    console.log(`Node ${this.host}:${this.port}: Earned mining reward of ${this.blockchain.miningReward} tokens`);
+                    
+                    await this.broadcastBlock(newBlock);
+                    console.log(`Node ${this.host}:${this.port}: Broadcasted block to peers`);
+                }
             } catch (error) {
                 console.error(`Node ${this.host}:${this.port}: Mining failed:`, error);
             }

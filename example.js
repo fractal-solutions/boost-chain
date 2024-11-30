@@ -191,6 +191,11 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         }
 
         
+            
+        
+
+        
+        
         console.log(`Sending ${type} transaction to port ${targetPort}`);
         const txResponse = await fetch(`http://localhost:${targetPort}/transaction`, {
             method: 'POST',
@@ -210,6 +215,32 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         // Wait for mining and synchronization
         await new Promise(resolve => setTimeout(resolve, 2000));
 
+        if (type !== "DEPOSIT" && type !== "WITHDRAW" && txResponse.ok) {
+            //calculate fee
+            const nodePublicKey = await getNodePublicKey(targetPort);
+            const fee = new Transaction(from.publicKey, nodePublicKey, 0.01 * amount);
+            fee.signTransaction(from.privateKey);
+            const feeData = {
+                sender: from.publicKey !== null ? from.publicKey : null,
+                recipient: nodePublicKey,
+                amount: 0.01 * amount,
+                timestamp: fee.timestamp,
+                signature: fee.signature,
+                type: "FEE"
+            };
+            //if payment processed then send fee
+            const feeResponse = await fetch(`http://localhost:${targetPort}/transaction`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-auth-token': process.env.NETWORK_SECRET
+                },
+                body: JSON.stringify(feeData)
+            });
+        }
+        // Wait for mining and synchronization
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
         // Only try to format address if 'from' exists
         const fromAddress = from ? formatAddress(from.publicKey) : 'DEPOSIT';
         // Adjust message based on transaction type
@@ -224,6 +255,28 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
     } catch (error) {
         console.error('Transaction error:', error.message);
         return { error: error.message };
+    }
+}
+
+async function getNodePublicKey(nodePort) {
+    try {
+        const response = await fetch(`http://localhost:${nodePort}/get-key`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-auth-token': process.env.NETWORK_SECRET
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.publicKey;
+    } catch (error) {
+        console.error('Error getting node public key:', error);
+        throw error;
     }
 }
 
@@ -324,7 +377,7 @@ async function main() {
             seedNodes: ['localhost:3001'],
             genesisBalances,
             businessInfo: {
-                name: "SME_2",
+                    name: "SME_2",
                     industry: "Services",
                     established: "2019"
             }
@@ -386,6 +439,7 @@ async function main() {
             } else {
                 console.log('Transaction successful');
             }
+            console.log('\n' + '='.repeat(80) + '\n');
             
             await new Promise(resolve => setTimeout(resolve, 2000));
                 await displayChainState(3001, 'Updated blockchain state:');
@@ -403,6 +457,7 @@ async function main() {
                         ).then(res => res.json()).then(data => data.balance);
                 console.log(`Node ${port}: ${balance} tokens (from mining)`);
             }
+            
         }
 
         const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute

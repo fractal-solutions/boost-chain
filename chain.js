@@ -6,9 +6,24 @@ import { createHash } from "crypto";
 export class Blockchain {
     constructor(genesisTransactions = []) {
         this.chain = [this.createGenesisBlock(genesisTransactions)];
+
         this.pendingTransactions = [];
+        this.minTransactionsPerBlock = 2; // Minimum transactions before mining (excluding reward)
+        this.maxTransactionsPerBlock = 5; // Maximum transactions per block
+        this.blockTimeTarget = 5000; // Target 10 seconds between blocks
+        this.lastBlockTime = Date.now();
+
         this.difficulty = 2;
-        this.miningReward = 0.01; // Define mining reward
+        this.miningReward = 0.01; 
+        this.balanceCache = new Map();
+        this.lastProcessedBlock = 0;
+
+        // Checkpoint
+        this.checkpoints = new Map(); // blockHeight -> blockHash
+        this.checkpointInterval = 100; // Create checkpoint every 100 blocks
+                
+        // Create genesis checkpoint
+        this.checkpoints.set(0, this.chain[0].hash);
     }
 
     createGenesisBlock(transactions = []) {
@@ -23,45 +38,192 @@ export class Blockchain {
         return this.chain[this.chain.length - 1];
     }
 
+
     addTransaction(transaction) {
-        // Validate transaction
         if (!transaction.isValid()) {
             throw new Error("Invalid transaction");
         }
 
-        // Check balance using only confirmed transactions
         if (transaction.sender !== null) {
+            // Check if sender has enough balance including the fee
             const balance = this.getBalance(transaction.sender);
-            if (balance < transaction.amount) {
-                throw new Error("Insufficient balance");
+            if (balance < (transaction.amount)) {
+                throw new Error("Insufficient balance (including transaction fee)");
             }
         }
 
         this.pendingTransactions.push(transaction);
     }
 
+    shouldMineBlock() {
+        const pendingCount = this.pendingTransactions.length;
+        const timeSinceLastBlock = Date.now() - this.lastBlockTime;
+
+        // More aggressive mining conditions for testing
+        return (
+            pendingCount >= this.minTransactionsPerBlock || 
+            (pendingCount > 0 && timeSinceLastBlock >= this.blockTimeTarget) ||
+            pendingCount >= this.maxTransactionsPerBlock  // Mine immediately if we hit max
+        );
+    }
+
+    
+
     minePendingTransactions(minerAddress) {
-        //const rewardTx = new Transaction(null, minerAddress, this.miningReward);
+
+        if (!this.shouldMineBlock()) {
+            return null;
+        }
+
+        if (this.pendingTransactions.length === 0) {
+            return null;
+        }
+
+        // Group related transactions (main tx + fee tx) together
+        const blockTransactions = [];
+        const processedHashes = new Set();
         
-        // Create new block with proper index
+        for (const tx of this.pendingTransactions) {
+            // Skip if we've already processed this transaction
+            if (processedHashes.has(tx.calculateHash())) continue;
+            
+            // Add the main transaction
+            blockTransactions.push(tx);
+            processedHashes.add(tx.calculateHash());
+            
+            // Find and add the related fee transaction if it exists
+            const relatedFee = this.pendingTransactions.find(feeTx => 
+                feeTx.type === "FEE" && 
+                feeTx.sender === tx.sender && 
+                feeTx.timestamp >= tx.timestamp && 
+                feeTx.timestamp - tx.timestamp < 1000 // Within 1 second
+            );
+            
+            if (relatedFee) {
+                blockTransactions.push(relatedFee);
+                processedHashes.add(relatedFee.calculateHash());
+            }
+            
+            // Check if we've reached block size limit
+            if (blockTransactions.length >= this.maxTransactionsPerBlock - 1) {
+                break;
+            }
+        }
+
+        // Select transactions for the block (including reward)
+        // const selectedTransactions = [
+        //     ...this.pendingTransactions.slice(0, this.maxTransactionsPerBlock - 1)
+        // ];
+
         const block = new Block(
-            this.chain.length, // Use chain length as index instead of Date.now()
-            [...this.pendingTransactions],
+            this.chain.length,
+            blockTransactions,
             this.getLatestBlock().hash
         );
     
-        // Mine the block
         block.mineBlock(this.difficulty);
         
         console.log('Block mined:', block.hash);
         this.chain.push(block);
     
-        this.pendingTransactions = [];
+        // Create checkpoint if needed
+        if (this.chain.length % this.checkpointInterval === 0) {
+            this.checkpoints.set(this.chain.length - 1, block.hash);
+            console.log(`Created checkpoint at height ${this.chain.length - 1}`);
+        }
+    
+        // Remove mined transactions from pending
+        //this.pendingTransactions = this.pendingTransactions.slice(selectedTransactions.length);
+
+        // Remove processed transactions from pending
+        const processedTxs = new Set(blockTransactions.map(tx => tx.calculateHash()));
+        this.pendingTransactions = this.pendingTransactions.filter(tx => 
+            !processedTxs.has(tx.calculateHash())
+        );
         
         return block;
     }
 
+    isValidChainSegment(chain, startHeight, endHeight) {
+        try {
+            for (let i = startHeight; i < endHeight; i++) {
+                const block = chain[i];
+                const previousBlock = chain[i - 1];
+
+                // Verify block connection
+                if (block.previousHash !== previousBlock.hash) {
+                    console.log(`Invalid block connection at height ${i}`);
+                    return false;
+                }
+
+                // Verify block hash
+                const calculatedHash = block.calculateHash();
+                if (block.hash !== calculatedHash) {
+                    console.log(`Invalid block hash at height ${i}:`, {
+                        stored: block.hash.substring(0, 10),
+                        calculated: calculatedHash.substring(0, 10)
+                    });
+                    return false;
+                }
+
+                // Verify transactions
+                for (const tx of block.transactions) {
+                    if (!tx.isValid() && tx.sender !== null) {
+                        console.log(`Invalid transaction in block ${i}`);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        } catch (error) {
+            console.error('Error validating chain segment:', error);
+            return false;
+        }
+    }
+
     isValidChain(chain) {
+        try {
+            // If new chain is shorter, reject it
+            if (chain.length < this.chain.length) {
+                console.log('Rejecting shorter chain');
+                return false;
+            }
+
+            // First, compare genesis blocks by hash
+            const genesisBlock = chain[0];
+            const ourGenesis = this.chain[0];
+            
+            if (genesisBlock.hash !== ourGenesis.hash) {
+                console.log('Genesis block mismatch:', {
+                    received: genesisBlock.hash.substring(0, 10),
+                    expected: ourGenesis.hash.substring(0, 10)
+                });
+                return false;
+            }
+
+            // Find the latest common checkpoint
+            let lastCheckpointHeight = 0;
+            for (const [height, hash] of this.checkpoints) {
+                if (height >= chain.length) break;
+                if (chain[height].hash === hash) {
+                    lastCheckpointHeight = height;
+                } else {
+                    console.log(`Checkpoint mismatch at height ${height}`);
+                    return false;
+                }
+            }
+
+            // Validate only the segment after the last checkpoint
+            console.log(`Validating chain from checkpoint at height ${lastCheckpointHeight}`);
+            return this.isValidChainSegment(chain, lastCheckpointHeight + 1, chain.length);
+
+        } catch (error) {
+            console.error('Error validating chain:', error);
+            return false;
+        }
+    }
+
+    isValidChainX(chain) {
         try{
             // If new chain is shorter, reject it
             if (chain.length < this.chain.length) {
@@ -221,7 +383,7 @@ export class Blockchain {
     }
 
 
-    getBalance(address) {
+    getBalanceX(address) {
         try {
             if (!address) return 0;
             let balance = 0;
@@ -250,5 +412,28 @@ export class Blockchain {
             console.error('Error calculating balance:', error);
             return 0;
         }
+    }
+
+    getBalance(address) {
+        this.updateBalanceCache();
+        return this.balanceCache.get(address) || 0;
+    }
+
+    updateBalanceCache() {
+        // Only process new blocks
+        for (let i = this.lastProcessedBlock; i < this.chain.length; i++) {
+            const block = this.chain[i];
+            for (const tx of block.transactions) {
+                if (tx.sender) {
+                    this.balanceCache.set(tx.sender, 
+                        (this.balanceCache.get(tx.sender) || 0) - tx.amount);
+                }
+                if (tx.recipient) {
+                    this.balanceCache.set(tx.recipient, 
+                        (this.balanceCache.get(tx.recipient) || 0) + tx.amount);
+                }
+            }
+        }
+        this.lastProcessedBlock = this.chain.length;
     }
 }

@@ -7,10 +7,39 @@ export class Block {
         this.transactions = transactions;
         this.previousHash = previousHash;
         this.nonce = 0;
+        this._txHashesCache = null;
         this.hash = this.calculateHash();
     }
 
     calculateHash() {
+        try {
+            // Cache transaction data if not already cached
+            if (!this._txHashesCache) {
+                this._txHashesCache = this.transactions.map(tx => ({
+                    sender: tx.sender,
+                    recipient: tx.recipient,
+                    amount: Number(tx.amount),
+                    timestamp: tx.timestamp,
+                    signature: tx.signature
+                }));
+            }
+    
+            const data = JSON.stringify({
+                index: this.index,
+                previousHash: this.previousHash,
+                timestamp: this.timestamp,
+                transactions: this._txHashesCache,
+                nonce: this.nonce
+            });
+    
+            return createHash("sha256").update(data).digest("hex");
+        } catch (error) {
+            console.error('Error calculating block hash:', error);
+            throw error;
+        }
+    }
+
+    calculateHashX() {
         try {
             // Ensure consistent transaction serialization
             const txData = this.transactions.map(tx => ({
