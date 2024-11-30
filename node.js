@@ -504,232 +504,322 @@ export class Node {
         try {
             console.log("Received transaction request");
             const data = await req.json();
-            console.log("Parsed request data:", data);
+            //console.log("Parsed request data:", data);
 
-            // Transaction hash checking to prevent duplicates
-            // Create Transaction object from request data
-            const txn = new Transaction(
-                data.sender,
-                data.recipient,
-                data.amount,
-                data.timestamp,
-                data.type
-            );
-            
-            // Copy over any additional properties
-            if (data.signature) txn.signature = data.signature;
-            if (data.nonce) txn.nonce = data.nonce;
-            if (data.authorization) txn.authorization = data.authorization;
-
-            // Now we can use transaction methods
-            const txHash = txn.calculateHash();
-
-            // Check if transaction is already in pending or in recent blocks
-            if (this.blockchain.pendingTransactions.some(tx => tx.calculateHash() === txHash)) {
-                return new Response(JSON.stringify({ 
-                    message: "Transaction already pending" 
-                }), {
-                    headers: { "Content-Type": "application/json" }
-                });
-            }
-
-            // Check last N blocks for this transaction
-            const recentBlocks = this.blockchain.chain.slice(-10); // Last 10 blocks
-            const isProcessed = recentBlocks.some(block => 
-                block.transactions.some(tx => tx.calculateHash() === txHash)
-            );
-            
-            if (isProcessed) {
-                return new Response(JSON.stringify({ 
-                    message: "Transaction already processed" 
-                }), {
-                    headers: { "Content-Type": "application/json" }
-                });
-            }
-
-            // Validate transaction type and permissions
-            // Special handling for deposits through controller node
-            if (data.type === 'DEPOSIT') {
-                // 1. Verify node type
-                if (this.nodeType !== NodeType.CONTROLLER) {
-                    return new Response(JSON.stringify({
-                        error: 'Unauthorized: Not a controller node'
-                    }), { status: 403 });
-                }
-
-                // 2. Verify deposit authorization
-                if (!this.verifyDepositAuthorization(data)) {
-                    return new Response(JSON.stringify({
-                        error: 'Invalid deposit authorization'
-                    }), { status: 401 });
-                }
-
-                // 3. Check rate limits
-                if (!this.checkDepositRateLimit(data.recipient, data.amount)) {
-                    return new Response(JSON.stringify({
-                        error: 'Deposit rate limit exceeded'
-                    }), { status: 429 });
-                }
-
-                // 4. Verify nonce hasn't been used
-                if (this.depositNonce.has(data.nonce)) {
-                    return new Response(JSON.stringify({
-                        error: 'Duplicate deposit nonce'
-                    }), { status: 400 });
-                }
-
-                // 5. Store nonce with timestamp
-                this.depositNonce.set(data.nonce, Date.now());
-
-                // Create and process deposit transaction
-                const transaction = new Transaction(null, data.recipient, data.amount);
-                transaction.timestamp = data.timestamp || Date.now();
-                transaction.depositAuth = data.authorization;
+            if (data.transactions && Array.isArray(data.transactions)) {
+                // Handle array of transactions
+                // Validate all transactions together
+                const totalAmount = data.transactions.reduce((sum, tx) => sum + tx.amount, 0);
                 
-                this.blockchain.addTransaction(transaction);
-                this.mineIfNeeded();
+                if (data.transactions[0].sender !== null && data.transactions[0].type !== "DEPOSIT") {
+                    const senderBalance = this.blockchain.getBalance(data.transactions[0].sender);
+                    if (senderBalance < totalAmount) {
+                        throw new Error("Insufficient balance for combined transactions");
+                    }
+                }
 
-                // Update rate limiting
-                this.updateDepositRateLimit(data.recipient, data.amount);
+                // Create and validate Transaction objects
+                const transactionObjects = data.transactions.map(txData => {
+                    const transaction = new Transaction(
+                        txData.sender,
+                        txData.recipient,
+                        txData.amount,
+                        txData.timestamp,
+                        txData.type
+                    );
+                    
+                    // Copy over additional properties
+                    transaction.signature = txData.signature;
+                    if (txData.nonce) transaction.nonce = txData.nonce;
+                    if (txData.authorization) transaction.authorization = txData.authorization;
 
+                    if (txData.type === "FEE") {
+                        transaction.skipSignatureValidation = true; 
+                    }
+                    
+                    console.log("Txn:", transaction);
+                    return transaction;
+                });
+
+
+                // Create Transaction objects and add them all
+                for (const transaction of transactionObjects) {
+                    const txHash = transaction.calculateHash();
+                    // Check if transaction is already in pending or in recent blocks
+                    if (this.blockchain.pendingTransactions.some(tx => tx.calculateHash() === txHash)) {
+                        return new Response(JSON.stringify({ 
+                            message: "Transaction already pending" 
+                        }), {
+                            headers: { "Content-Type": "application/json" }
+                        });
+                    }
+
+                    // Check last N blocks for this transaction
+                    const recentBlocks = this.blockchain.chain.slice(-10); // Last 10 blocks
+                    const isProcessed = recentBlocks.some(block => 
+                        block.transactions.some(tx => tx.calculateHash() === txHash)
+                    );
+                    
+                    if (isProcessed) {
+                        return new Response(JSON.stringify({ 
+                            message: "Transaction already processed" 
+                        }), {
+                            headers: { "Content-Type": "application/json" }
+                        });
+                    }
+
+                    // For SME nodes, track business metrics
+                    if (this.nodeType === NodeType.SME && transaction.type !== "FEE") {
+                        this.businessMetrics.transactionVolume += data.amount;
+                        this.businessMetrics.lastActivity = Date.now();
+                        // Add sender to customer count if not null (not a genesis transaction)
+                        if (data.sender) {
+                            this.businessMetrics.customerCount.add(data.sender);
+                        }
+                    }
+
+                   //ADD unique txn 
+                    this.blockchain.addTransaction(transaction);
+                    
+                }
+                // Broadcast all transactions
+                //await this.broadcastTransaction(transactionObjects);
+                // Trigger mining check
+                this.mineIfNeeded();  
                 return new Response(JSON.stringify({ 
-                    message: "Deposit processed successfully",
+                    message: "Transaction added successfully",
                     status: "accepted",
-                    transaction: transaction
-                }));
-            }
+                    transaction: transactionObjects
+                }), {
+                    headers: { "Content-Type": "application/json" }
+                });
 
-            // Handle withdrawals
-            if (data.type === 'WITHDRAW') {
-                // 1. Verify node type
-                if (this.nodeType !== NodeType.CONTROLLER) {
-                    return new Response(JSON.stringify({
-                        error: 'Unauthorized: Not a controller node'
-                    }), { status: 403 });
-                }
-
-                // 2. Create transaction object for withdrawal
-                const transaction = new Transaction(
+            } else {
+                // Transaction hash checking to prevent duplicates
+                // Create Transaction object from request data
+                const txn = new Transaction(
                     data.sender,
-                    null,  // Null recipient for withdrawals
-                    data.amount
+                    data.recipient,
+                    data.amount,
+                    data.timestamp,
+                    data.type
                 );
-                transaction.timestamp = data.timestamp;
-                transaction.signature = data.signature;
-                transaction.type = "WITHDRAW";
+                
+                // Copy over any additional properties
+                if (data.signature) txn.signature = data.signature;
+                if (data.nonce) txn.nonce = data.nonce;
+                if (data.authorization) txn.authorization = data.authorization;
 
-                // 3. Verify withdrawal authorization
-                if (!this.verifyWithdrawalAuthorization(data)) {
-                    return new Response(JSON.stringify({
-                        error: 'Invalid withdrawal authorization'
-                    }), { status: 401 });
-                }
+                // Now we can use transaction methods
+                const txHash = txn.calculateHash();
 
-                // 4. Check balance
-                const senderBalance = this.blockchain.getBalance(data.sender);
-                if (senderBalance < data.amount) {
-                    return new Response(JSON.stringify({
-                        error: 'Insufficient balance',
-                        status: 'rejected',
-                        balance: senderBalance,
-                        attempted: data.amount
-                    }), { status: 400 });
-                }
-
-                // 5. Add to blockchain's pending transactions
-                this.blockchain.addTransaction(transaction);
-                this.mineIfNeeded();
-
-                return new Response(JSON.stringify({
-                    message: "Withdrawal processed successfully",
-                    status: "accepted",
-                    transaction: transaction
-                }));
-            }
-
-            // For SME nodes, track business metrics
-            if (this.nodeType === NodeType.SME) {
-                this.businessMetrics.transactionVolume += data.amount;
-                this.businessMetrics.lastActivity = Date.now();
-                // Add sender to customer count if not null (not a genesis transaction)
-                if (data.sender) {
-                    this.businessMetrics.customerCount.add(data.sender);
-                }
-            }
-
-            // For validator nodes, perform additional validation
-            if (this.nodeType === NodeType.VALIDATOR) {
-                // Add any specific validation logic here
-                const senderBalance = this.blockchain.getBalance(data.sender);
-                if (senderBalance < data.amount) {
-                    return new Response(JSON.stringify({
-                        error: 'Insufficient funds',
-                        balance: senderBalance,
-                        attempted: data.amount
+                // Check if transaction is already in pending or in recent blocks
+                if (this.blockchain.pendingTransactions.some(tx => tx.calculateHash() === txHash)) {
+                    return new Response(JSON.stringify({ 
+                        message: "Transaction already pending" 
                     }), {
-                        status: 400,
                         headers: { "Content-Type": "application/json" }
                     });
                 }
-            }
-            
-            // Create new transaction
-            const transaction = new Transaction(
-                data.sender,
-                data.recipient,
-                data.amount
-            );
-            transaction.timestamp = data.timestamp || Date.now();
-            transaction.signature = data.signature;
-    
-            // Validate and add transaction
-            try {
-                // Validate transaction
-                if (data.type !== 'DEPOSIT' && !transaction.isValid()) {
+
+                // Check last N blocks for this transaction
+                const recentBlocks = this.blockchain.chain.slice(-10); // Last 10 blocks
+                const isProcessed = recentBlocks.some(block => 
+                    block.transactions.some(tx => tx.calculateHash() === txHash)
+                );
+                
+                if (isProcessed) {
                     return new Response(JSON.stringify({ 
-                        error: "Invalid transaction signature",
+                        message: "Transaction already processed" 
+                    }), {
+                        headers: { "Content-Type": "application/json" }
+                    });
+                }
+
+                // Validate transaction type and permissions
+                // Special handling for deposits through controller node
+                if (data.type === 'DEPOSIT') {
+                    // 1. Verify node type
+                    if (this.nodeType !== NodeType.CONTROLLER) {
+                        return new Response(JSON.stringify({
+                            error: 'Unauthorized: Not a controller node'
+                        }), { status: 403 });
+                    }
+
+                    // 2. Verify deposit authorization
+                    if (!this.verifyDepositAuthorization(data)) {
+                        return new Response(JSON.stringify({
+                            error: 'Invalid deposit authorization'
+                        }), { status: 401 });
+                    }
+
+                    // 3. Check rate limits
+                    if (!this.checkDepositRateLimit(data.recipient, data.amount)) {
+                        return new Response(JSON.stringify({
+                            error: 'Deposit rate limit exceeded'
+                        }), { status: 429 });
+                    }
+
+                    // 4. Verify nonce hasn't been used
+                    if (this.depositNonce.has(data.nonce)) {
+                        return new Response(JSON.stringify({
+                            error: 'Duplicate deposit nonce'
+                        }), { status: 400 });
+                    }
+
+                    // 5. Store nonce with timestamp
+                    this.depositNonce.set(data.nonce, Date.now());
+
+                    // Create and process deposit transaction
+                    const transaction = new Transaction(null, data.recipient, data.amount);
+                    transaction.timestamp = data.timestamp || Date.now();
+                    transaction.depositAuth = data.authorization;
+                    
+                    this.blockchain.addTransaction(transaction);
+                    this.mineIfNeeded();
+
+                    // Update rate limiting
+                    this.updateDepositRateLimit(data.recipient, data.amount);
+
+                    return new Response(JSON.stringify({ 
+                        message: "Deposit processed successfully",
+                        status: "accepted",
+                        transaction: transaction
+                    }));
+                }
+
+                // Handle withdrawals
+                if (data.type === 'WITHDRAW') {
+                    // 1. Verify node type
+                    if (this.nodeType !== NodeType.CONTROLLER) {
+                        return new Response(JSON.stringify({
+                            error: 'Unauthorized: Not a controller node'
+                        }), { status: 403 });
+                    }
+
+                    // 2. Create transaction object for withdrawal
+                    const transaction = new Transaction(
+                        data.sender,
+                        null,  // Null recipient for withdrawals
+                        data.amount
+                    );
+                    transaction.timestamp = data.timestamp;
+                    transaction.signature = data.signature;
+                    transaction.type = "WITHDRAW";
+
+                    // 3. Verify withdrawal authorization
+                    if (!this.verifyWithdrawalAuthorization(data)) {
+                        return new Response(JSON.stringify({
+                            error: 'Invalid withdrawal authorization'
+                        }), { status: 401 });
+                    }
+
+                    // 4. Check balance
+                    const senderBalance = this.blockchain.getBalance(data.sender);
+                    if (senderBalance < data.amount) {
+                        return new Response(JSON.stringify({
+                            error: 'Insufficient balance',
+                            status: 'rejected',
+                            balance: senderBalance,
+                            attempted: data.amount
+                        }), { status: 400 });
+                    }
+
+                    // 5. Add to blockchain's pending transactions
+                    this.blockchain.addTransaction(transaction);
+                    this.mineIfNeeded();
+
+                    return new Response(JSON.stringify({
+                        message: "Withdrawal processed successfully",
+                        status: "accepted",
+                        transaction: transaction
+                    }));
+                }
+
+                // For SME nodes, track business metrics
+                if (this.nodeType === NodeType.SME) {
+                    this.businessMetrics.transactionVolume += data.amount;
+                    this.businessMetrics.lastActivity = Date.now();
+                    // Add sender to customer count if not null (not a genesis transaction)
+                    if (data.sender) {
+                        this.businessMetrics.customerCount.add(data.sender);
+                    }
+                }
+
+                // For validator nodes, perform additional validation
+                if (this.nodeType === NodeType.VALIDATOR) {
+                    // Add any specific validation logic here
+                    const senderBalance = this.blockchain.getBalance(data.sender);
+                    if (senderBalance < data.amount) {
+                        return new Response(JSON.stringify({
+                            error: 'Insufficient funds',
+                            balance: senderBalance,
+                            attempted: data.amount
+                        }), {
+                            status: 400,
+                            headers: { "Content-Type": "application/json" }
+                        });
+                    }
+                }
+                
+                // Create new transaction
+                const transaction = new Transaction(
+                    data.sender,
+                    data.recipient,
+                    data.amount
+                );
+                transaction.timestamp = data.timestamp || Date.now();
+                transaction.signature = data.signature;
+        
+                // Validate and add transaction
+                try {
+                    // Validate transaction
+                    if (data.type !== 'DEPOSIT' && !transaction.isValid()) {
+                        return new Response(JSON.stringify({ 
+                            error: "Invalid transaction signature",
+                            status: "rejected"
+                        }), {
+                            status: 400,
+                            headers: { "Content-Type": "application/json" }
+                        });
+                    }
+        
+                    // Check balance Node Agnostic
+                    const senderBalance = this.blockchain.getBalance(transaction.sender);
+                    if (data.type !== 'DEPOSIT' &&senderBalance < transaction.amount + (transaction.amount * this.transactionFee)) {
+                        return new Response(JSON.stringify({ 
+                            error: "Insufficient balance",
+                            status: "rejected",
+                            balance: senderBalance,
+                            attempted: transaction.amount
+                        }), {
+                            status: 400,
+                            headers: { "Content-Type": "application/json" }
+                        });
+                    }
+        
+                    // Add to blockchain's pending transactions
+                    this.blockchain.addTransaction(transaction);
+                    
+                    // Trigger mining check
+                    this.mineIfNeeded();
+        
+                    return new Response(JSON.stringify({ 
+                        message: "Transaction added successfully",
+                        status: "accepted",
+                        transaction: transaction
+                    }), {
+                        headers: { "Content-Type": "application/json" }
+                    });
+                } catch (error) {
+                    return new Response(JSON.stringify({ 
+                        error: error.message,
                         status: "rejected"
                     }), {
                         status: 400,
                         headers: { "Content-Type": "application/json" }
                     });
                 }
-    
-                // Check balance Node Agnostic
-                const senderBalance = this.blockchain.getBalance(transaction.sender);
-                if (data.type !== 'DEPOSIT' &&senderBalance < transaction.amount + (transaction.amount * this.transactionFee)) {
-                    return new Response(JSON.stringify({ 
-                        error: "Insufficient balance",
-                        status: "rejected",
-                        balance: senderBalance,
-                        attempted: transaction.amount
-                    }), {
-                        status: 400,
-                        headers: { "Content-Type": "application/json" }
-                    });
-                }
-    
-                // Add to blockchain's pending transactions
-                this.blockchain.addTransaction(transaction);
-                
-                // Trigger mining check
-                this.mineIfNeeded();
-    
-                return new Response(JSON.stringify({ 
-                    message: "Transaction added successfully",
-                    status: "accepted",
-                    transaction: transaction
-                }), {
-                    headers: { "Content-Type": "application/json" }
-                });
-            } catch (error) {
-                return new Response(JSON.stringify({ 
-                    error: error.message,
-                    status: "rejected"
-                }), {
-                    status: 400,
-                    headers: { "Content-Type": "application/json" }
-                });
             }
         } catch (error) {
             console.error("Error parsing transaction request:", error);
@@ -862,6 +952,7 @@ export class Node {
         try {
             const blockData = await req.json();
             console.log(`Node ${this.port}: Received new block with hash ${blockData.hash.substring(0, 10)}`);
+            console.log('Block data:', blockData);
             
             // Validate block structure first
             if (!blockData || !blockData.hash || !blockData.previousHash || !Array.isArray(blockData.transactions)) {
@@ -885,7 +976,31 @@ export class Node {
     
             // Validate transactions in block
             for (const tx of block.transactions) {
-                if (!tx.isValid()) {
+                // Log the transaction being validated
+                // console.log('Validating transaction:', {
+                //     type: tx.type,
+                //     hash: tx.calculateHash().substring(0, 10) + '...',
+                //     signature: tx.signature?.substring(0, 10) + '...'
+                // });
+                // Skip signature validation for FEE transactions
+                if (tx.type === "FEE") {
+                    // Only validate basic properties for FEE transactions
+                    if (!tx.sender || !tx.recipient || !tx.amount) {
+                        throw new Error('Invalid FEE transaction structure');
+                    }
+                    console.log('Skipping validation for FEE transaction');
+                    continue; // Skip further validation
+                }
+                
+                // Full validation for non-FEE transactions
+                if (tx.type !== "FEE" && !tx.isValid()) {
+                    console.error(`Node ${this.host}:${this.port}: Transaction validation failed`, {
+                        expectedHash: tx.calculateHash(),
+                        type: tx.type,
+                        signature: tx.signature,
+                        sender: tx.sender?.substring(0, 20) + '...',
+                        recipient: tx.recipient?.substring(0, 20) + '...'
+                    });
                     throw new Error('Block contains invalid transaction');
                 }
             }
@@ -934,14 +1049,39 @@ export class Node {
 
     reconstructBlock(blockData) {
         try {
+            const transactions = blockData.transactions.map(txData => {
+                // console.log('Raw transaction data:', {
+                //     type: txData.type,
+                //     signature: txData.signature?.substring(0, 10) + '...'
+                // });
+        
+                // Create base transaction WITH type
+                const tx = new Transaction(
+                    txData.sender,
+                    txData.recipient,
+                    txData.amount,
+                    txData.timestamp,
+                    txData.type  // Pass the type here!
+                );
+                
+                // Set additional properties
+                tx.signature = txData.signature;
+                if (txData.type === "FEE") {
+                    tx.skipSignatureValidation = true;
+                }
+        
+                // console.log('Reconstructed transaction:', {
+                //     type: tx.type,
+                //     is_fee: tx.type === "FEE",
+                //     skip_validation: tx.skipSignatureValidation,
+                //     signature: tx.signature?.substring(0, 10) + '...'
+                // });
+        
+                return tx;
+            });
             const block = new Block(
                 blockData.index || this.blockchain.chain.length,
-                blockData.transactions.map(tx => {
-                    const transaction = new Transaction(tx.sender, tx.recipient, Number(tx.amount));
-                    transaction.timestamp = tx.timestamp;
-                    transaction.signature = tx.signature;
-                    return transaction;
-                }),
+                transactions,
                 blockData.previousHash
             );
             
@@ -955,6 +1095,8 @@ export class Node {
             throw new Error('Failed to reconstruct block: ' + error.message);
         }
     }
+
+    
     
     async getChainFromPeer(peerAddress) {
         try {
@@ -1076,18 +1218,39 @@ export class Node {
         }
     }
 
-    async broadcastTransaction(transaction) {
-        const promises = Array.from(this.peers.values()).map(peer => 
-            fetch(`${peer}/transaction`, {
+    async broadcastTransaction(transactions) {
+        // Normalize input to always be an array
+        const txArray = Array.isArray(transactions) ? transactions : [transactions];
+        
+        const promises = Array.from(this.peers.values()).map(peer => {
+            // Get peer address from the peer object/string
+            const peerAddress = typeof peer === 'string' ? peer : `${peer.host}:${peer.port}`;
+            const [host, port] = peerAddress.split(':');
+            const peerUrl = `http://${host}:${port}/transaction`;
+            
+            console.log("Broadcasting to peer:", peerUrl);
+            
+            return fetch(peerUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-auth-token': process.env.NETWORK_SECRET
-                },
-                body: JSON.stringify(transaction)
-            })
-        );
-        await Promise.all(promises);
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    transactions: txArray 
+                })
+            }).catch(err => {
+                console.warn(`Failed to broadcast to ${peerUrl}:`, err.message);
+                return null;
+            });
+        });
+    
+        try {
+            const results = await Promise.all(promises);
+            const successfulBroadcasts = results.filter(r => r !== null);
+            console.log(`Successfully broadcast to ${successfulBroadcasts.length}/${promises.length} peers`);
+            return successfulBroadcasts;
+        } catch (error) {
+            console.error("Broadcast error:", error);
+            throw new Error("Failed to broadcast transaction");
+        }
     }
 
     async broadcastBlock(block) {
@@ -1102,7 +1265,8 @@ export class Node {
                         recipient: tx.recipient,
                         amount: tx.amount,
                         timestamp: tx.timestamp,
-                        signature: tx.signature
+                        signature: tx.signature,
+                        type: tx.type
                     })),
                     previousHash: block.previousHash,
                     nonce: block.nonce,

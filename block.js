@@ -20,7 +20,8 @@ export class Block {
                     recipient: tx.recipient,
                     amount: Number(tx.amount),
                     timestamp: tx.timestamp,
-                    signature: tx.signature
+                    signature: tx.signature,
+                    type: tx.type
                 }));
             }
     

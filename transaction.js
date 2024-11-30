@@ -1,22 +1,28 @@
 import { createSign, createVerify, createHash } from "crypto";
 
 export class Transaction {
-    constructor(sender, recipient, amount) {
+    constructor(sender, recipient, amount, timestamp = Date.now(), type = "TRANSFER") {
         this.sender = sender;
         this.recipient = recipient;
         this.amount = amount;
-        this.timestamp = Date.now();
+        this.timestamp = timestamp;
         this.signature = "";
+        this.type = type;
+    }
+
+    calculateHashX() {
+        const data = JSON.stringify({
+            sender: this.sender,
+            recipient: this.recipient,
+            amount: this.amount,
+            timestamp: this.timestamp,
+            type: this.type  // Add this line
+        });
+        return createHash("sha256").update(data).digest("hex");
     }
 
     calculateHash() {
         const data = this.sender + this.recipient + this.amount + this.timestamp;
-        // const data = JSON.stringify({
-        //     sender: this.sender,
-        //     recipient: this.recipient,
-        //     amount: this.amount,
-        //     timestamp: this.timestamp
-        // });
         return createHash("sha256").update(data).digest("hex");
     }
 
@@ -43,6 +49,9 @@ export class Transaction {
     }
 
     isValid() {
+        if (this.skipSignatureValidation || this.type === "FEE") {
+            return true;
+        }
         // Genesis transaction or mining reward
         if (this.sender === null) {
             return true;
