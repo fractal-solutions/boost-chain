@@ -291,7 +291,8 @@ async function getNodePublicKey(nodePort) {
 }
 
 async function checkNodesHealth(nodes) {
-    console.log('\nChecking health of all nodes...');
+    console.log('\x1b[31m%s\x1b[0m', '\n===========================================');
+    console.log('\x1b[31m%s\x1b[0m', 'Checking health of all nodes...');
     let allHealthy = true;
     
     for (let i = 0; i < nodes.length; i++) {
@@ -307,23 +308,24 @@ async function checkNodesHealth(nodes) {
             
             const health = await response.json();
             
-            console.log(`Node ${i + 1} (port ${port}):`);
-            console.log(`  Status: ${health.status || 'undefined'}`);
-            console.log(`  Type: ${health.nodeType}`);
-            console.log(`  Blocks: ${health.blockHeight || 0} (${(health.blockHeight || 1) - 1} transactions processed)`);
-            console.log(`  Connected Peers: ${health.peersCount || 0}`);
-            console.log(`  Pending Transactions: ${health.pendingTransactions || 0}`);
+            console.log('\x1b[33m%s\x1b[0m', `┌─ Node ${i + 1} (port ${port}) ───────────────────`);
+            console.log('\x1b[33m%s\x1b[0m', `│ Status: ${health.status || 'undefined'}`);
+            console.log('\x1b[33m%s\x1b[0m', `│ Type: ${health.nodeType}`); 
+            console.log('\x1b[33m%s\x1b[0m', `│ Blocks: ${health.blockHeight || 0} (${(health.blockHeight || 1) - 1} transactions processed)`);
+            console.log('\x1b[33m%s\x1b[0m', `│ Connected Peers: ${health.peersCount || 0}`);
+            console.log('\x1b[33m%s\x1b[0m', `└ Pending Transactions: ${health.pendingTransactions || 0}`);
             
             if (health.status !== 'healthy') {
                 allHealthy = false;
-                console.log(`  WARNING: Node is unhealthy!`);
+                console.log('\x1b[31m%s\x1b[0m', `  WARNING: Node is unhealthy!`);
             }
         } catch (error) {
             allHealthy = false;
-            console.log(`Node ${i + 1} (port ${port}): OFFLINE or ERROR`);
-            console.error(`  Error details: ${error.message}`);
+            console.log('\x1b[31m%s\x1b[0m', `Node ${i + 1} (port ${port}): OFFLINE or ERROR`);
+            console.log('\x1b[31m%s\x1b[0m', `  Error details: ${error.message}`);
         }
     }
+    console.log('\x1b[31m%s\x1b[0m', '===========================================\n');
     
     return allHealthy;
 }
@@ -391,13 +393,61 @@ async function main() {
                     industry: "Services",
                     established: "2019"
             }
+        }).initialize(),
+        new Node({
+            host: 'localhost',
+            port: 3004,
+            nodeType: NodeType.SME,
+            seedNodes: ['localhost:3001'],
+            genesisBalances,
+            businessInfo: {
+                    name: "SME_3",
+                    industry: "Manufacturing",
+                    established: "2018"
+            }
+        }).initialize(),
+        new Node({
+            host: 'localhost',
+            port: 3005,
+            nodeType: NodeType.SME,
+            seedNodes: ['localhost:3001'],
+            genesisBalances,
+            businessInfo: {
+                    name: "SME_4",
+                    industry: "Technology",
+                    established: "2017"
+            }
+        }).initialize(),
+        new Node({
+            host: 'localhost',
+            port: 3006,
+            nodeType: NodeType.SME,
+            seedNodes: ['localhost:3001'],
+            genesisBalances,
+            businessInfo: {
+                    name: "SME_5",
+                    industry: "Finance",
+                    established: "2016"
+            }
+        }).initialize(),
+        new Node({
+            host: 'localhost',
+            port: 3007,
+            nodeType: NodeType.SME,
+            seedNodes: ['localhost:3001'],
+            genesisBalances,
+            businessInfo: {
+                    name: "SME_6",
+                    industry: "Healthcare",
+                    established: "2015"
+            }
         }).initialize()
     ]);
 
     // Start validator node
     const validatorNode = await new Node({
         host: 'localhost',
-        port: 3004,
+        port: 3008,
         nodeType: NodeType.VALIDATOR,
         seedNodes: ['localhost:3001'],
         genesisBalances
@@ -417,13 +467,13 @@ async function main() {
     const transactions = [
         { from: null, to: alice, amount: 1000, message: 'Controller node deposits 1000 to Alice', type: "DEPOSIT" },
         { from: alice, to: null, amount: 100, message: 'Alice withdraws 100', type: "WITHDRAW" },
-        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" }
-        // { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
-        // { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
-        // { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSACTION" },
-        // { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSACTION" },
-        // { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSACTION" },
-        // { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSACTION" },
+        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" },
+        { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
+        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
+        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSACTION" },
+        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSACTION" },
+        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSACTION" },
+        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSACTION" },
         // { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob', type: "TRANSACTION"  },
         // { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has', type: "TRANSACTION" },
         // { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice', type: "TRANSACTION" },
@@ -438,31 +488,31 @@ async function main() {
     // Execute each transaction
         for (const tx of transactions) {
             console.log('\n' + '='.repeat(80) + '\n');
-            console.log(`\nExecuting transaction: ${tx.message}`);
-            const ports = [3001, 3002, 3003, 3004];
+            console.log('\x1b[34m%s\x1b[0m', `\nExecuting transaction: ${tx.message}`);
+            const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008];
             const randomPort = ports[Math.floor(Math.random() * ports.length)];
             const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort, tx.type);
             
             if (result.error) {
-                console.log(`Transaction failed: ${result.error}`);
+                console.log('\x1b[31m%s\x1b[0m', `Transaction failed: ${result.error}`);
                 if (result.balance !== undefined) {
-                    console.log(`Available balance: ${result.balance}, Attempted: ${result.attempted}`);
+                    console.log('\x1b[31m%s\x1b[0m', `Available balance: ${result.balance}, Attempted: ${result.attempted}`);
                 }
             } else {
-                console.log('Transaction successful');
+                console.log('\x1b[32m%s\x1b[0m', 'Transaction successful');
             }
             console.log('\n' + '='.repeat(80) + '\n');
             
-            await new Promise(resolve => setTimeout(resolve, 2000));
-                await displayChainState(3001, 'Updated blockchain state:');
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            //await new Promise(resolve => setTimeout(resolve, 2000));
+                //await displayChainState(3001, 'Updated blockchain state:');
+            //await new Promise(resolve => setTimeout(resolve, 2000));
                 await checkAllBalances(3001);
-            
+            //await new Promise(resolve => setTimeout(resolve, 2000));
             // Wait a bit between transactions regardless of success/failure
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 2000));
             // Check mining rewards
             console.log('\nNode Balances:');
-            for (const port of [3001, 3002, 3003, 3004]) {
+            for (const port of [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008]) {
                 const node = nodes[port - 3001];
                 const balance = await fetch(`http://localhost:${port}/balance?address=${encodeURIComponent(node.wallet.publicKey)}`,
                         { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
@@ -474,18 +524,18 @@ async function main() {
 
         const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
         await checkNodesHealth(nodes);
-
+        await new Promise(resolve => setTimeout(resolve, 1000));
         // Start new validator node
-        console.log(`\nStarting new validator node on port ${3005 + count}`);
+        console.log(`\n${'-'.repeat(30)}\nStarting new validator node on port ${3005 + count}\n${'-'.repeat(30)}`);
         const newNode = await new Node({
             host: 'localhost',
-            port: 3005 + count,
+            port: 3009 + count,
             nodeType: NodeType.VALIDATOR,
             seedNodes: ['localhost:3001'],
             genesisBalances
         }).initialize();
         count++;
-
+        await new Promise(resolve => setTimeout(resolve, 2000));
         console.log('\nTransaction series complete. Monitoring node health...');
         console.log('Press Ctrl+C to exit.');
     }
