@@ -291,8 +291,8 @@ async function getNodePublicKey(nodePort) {
 }
 
 async function checkNodesHealth(nodes) {
-    console.log('\x1b[31m%s\x1b[0m', '\n===========================================');
-    console.log('\x1b[31m%s\x1b[0m', 'Checking health of all nodes...');
+    console.log('\x1b[33m%s\x1b[0m', '\n===========================================');
+    console.log('\x1b[33m%s\x1b[0m', 'Checking health of all nodes...');
     let allHealthy = true;
     
     for (let i = 0; i < nodes.length; i++) {
@@ -309,7 +309,7 @@ async function checkNodesHealth(nodes) {
             const health = await response.json();
             
             console.log('\x1b[33m%s\x1b[0m', `┌─ Node ${i + 1} (port ${port}) ───────────────────`);
-            console.log('\x1b[33m%s\x1b[0m', `│ Status: ${health.status || 'undefined'}`);
+            console.log(`│ Status: ${health.status === 'healthy' ? '\x1b[32m' : '\x1b[31m'}${health.status || 'undefined'}\x1b[33m'}`);
             console.log('\x1b[33m%s\x1b[0m', `│ Type: ${health.nodeType}`); 
             console.log('\x1b[33m%s\x1b[0m', `│ Blocks: ${health.blockHeight || 0} (${(health.blockHeight || 1) - 1} transactions processed)`);
             console.log('\x1b[33m%s\x1b[0m', `│ Connected Peers: ${health.peersCount || 0}`);
@@ -325,7 +325,7 @@ async function checkNodesHealth(nodes) {
             console.log('\x1b[31m%s\x1b[0m', `  Error details: ${error.message}`);
         }
     }
-    console.log('\x1b[31m%s\x1b[0m', '===========================================\n');
+    console.log('\x1b[33m%s\x1b[0m', '===========================================\n');
     
     return allHealthy;
 }
