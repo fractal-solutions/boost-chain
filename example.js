@@ -309,7 +309,7 @@ async function checkNodesHealth(nodes) {
             const health = await response.json();
             
             console.log('\x1b[33m%s\x1b[0m', `┌─ Node ${i + 1} (port ${port}) ───────────────────`);
-            console.log(`│ Status: ${health.status === 'healthy' ? '\x1b[32m' : '\x1b[31m'}${health.status || 'undefined'}\x1b[33m'}`);
+            console.log(`\x1b[33m%s\x1b[0m`, `│ Status: ${health.status === 'healthy' ? '\x1b[32m' : '\x1b[31m'}${health.status || 'undefined'}\x1b[33m`);
             console.log('\x1b[33m%s\x1b[0m', `│ Type: ${health.nodeType}`); 
             console.log('\x1b[33m%s\x1b[0m', `│ Blocks: ${health.blockHeight || 0} (${(health.blockHeight || 1) - 1} transactions processed)`);
             console.log('\x1b[33m%s\x1b[0m', `│ Connected Peers: ${health.peersCount || 0}`);
@@ -522,7 +522,7 @@ async function main() {
             
         }
 
-        const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
+        //const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
         await checkNodesHealth(nodes);
         await new Promise(resolve => setTimeout(resolve, 1000));
         // Start new validator node

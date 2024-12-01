@@ -202,16 +202,26 @@ export class Blockchain {
                 return false;
             }
 
-            // Find the latest common checkpoint
-            let lastCheckpointHeight = 0;
-            for (const [height, hash] of this.checkpoints) {
-                if (height >= chain.length) break;
-                if (chain[height].hash === hash) {
-                    lastCheckpointHeight = height;
-                } else {
-                    console.log(`Checkpoint mismatch at height ${height}`);
-                    return false;
+            // // Find the latest common checkpoint
+            // let lastCheckpointHeight = 0;
+            // for (const [height, hash] of this.checkpoints) {
+            //     if (height >= chain.length) break;
+            //     if (chain[height].hash === hash) {
+            //         lastCheckpointHeight = height;
+            //     } else {
+            //         console.log(`Checkpoint mismatch at height ${height}`);
+            //         return false;
+            //     }
+            // }
+
+            // Find the highest common checkpoint
+            let lastCheckpointHeight = this.chain.length - 1;
+            while (lastCheckpointHeight > 0) {
+                if (this.checkpoints.has(lastCheckpointHeight) && 
+                    chain[lastCheckpointHeight]?.hash === this.checkpoints.get(lastCheckpointHeight)) {
+                    break;
                 }
+                lastCheckpointHeight--;
             }
 
             // Validate only the segment after the last checkpoint
