@@ -386,7 +386,7 @@ async function main() {
             host: 'localhost',
             port: 3003,
             nodeType: NodeType.SME,
-            seedNodes: ['localhost:3001'],
+            seedNodes: ['localhost:3001', 'localhost:3002'],
             genesisBalances,
             businessInfo: {
                     name: "SME_2",
@@ -398,7 +398,7 @@ async function main() {
             host: 'localhost',
             port: 3004,
             nodeType: NodeType.SME,
-            seedNodes: ['localhost:3001'],
+            seedNodes: ['localhost:3001','localhost:3002','localhost:3003'],
             genesisBalances,
             businessInfo: {
                     name: "SME_3",
@@ -410,7 +410,7 @@ async function main() {
             host: 'localhost',
             port: 3005,
             nodeType: NodeType.SME,
-            seedNodes: ['localhost:3001'],
+            seedNodes: ['localhost:3001','localhost:3002','localhost:3003','localhost:3004'],
             genesisBalances,
             businessInfo: {
                     name: "SME_4",
@@ -422,7 +422,7 @@ async function main() {
             host: 'localhost',
             port: 3006,
             nodeType: NodeType.SME,
-            seedNodes: ['localhost:3001'],
+            seedNodes: ['localhost:3001','localhost:3002','localhost:3003','localhost:3004','localhost:3005'],
             genesisBalances,
             businessInfo: {
                     name: "SME_5",
@@ -434,7 +434,7 @@ async function main() {
             host: 'localhost',
             port: 3007,
             nodeType: NodeType.SME,
-            seedNodes: ['localhost:3001'],
+            seedNodes: ['localhost:3001','localhost:3002','localhost:3003','localhost:3004','localhost:3005','localhost:3006'],
             genesisBalances,
             businessInfo: {
                     name: "SME_6",
@@ -467,13 +467,13 @@ async function main() {
     const transactions = [
         { from: null, to: alice, amount: 1000, message: 'Controller node deposits 1000 to Alice', type: "DEPOSIT" },
         { from: alice, to: null, amount: 100, message: 'Alice withdraws 100', type: "WITHDRAW" },
-        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSACTION" },
-        { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSACTION" },
-        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSACTION" },
-        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSACTION" },
-        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSACTION" },
-        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSACTION" },
-        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSACTION" },
+        { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSFER" },
+        { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSFER" },
+        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSFER" },
+        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSFER" },
+        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSFER" },
+        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSFER" },
+        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSFER" },
         // { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob', type: "TRANSACTION"  },
         // { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has', type: "TRANSACTION" },
         // { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice', type: "TRANSACTION" },
@@ -524,6 +524,7 @@ async function main() {
 
         //const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
         await checkNodesHealth(nodes);
+        await displayChainState(3001, "Chain: ")
         await new Promise(resolve => setTimeout(resolve, 1000));
         // Start new validator node
         console.log(`\n${'-'.repeat(30)}\nStarting new validator node on port ${3005 + count}\n${'-'.repeat(30)}`);

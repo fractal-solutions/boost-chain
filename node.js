@@ -141,9 +141,15 @@ export class Node {
             await this.registerWithSeedNodes();
         }
 
-        // Start periodic peer discovery
-        setInterval(() => this.discoverPeers(), this.peerDiscoveryInterval);  // Every 30 seconds
-        setInterval(() => this.maintainPeerConnections(), this.peerMaintenanceInterval);  // Every minute
+        // Start peer discovery and sync
+         setTimeout(() => {
+            this.startPeerDiscovery();
+            setInterval(() => this.syncWithPeers(), 5000); // Sync every 5 seconds
+            
+        }, 10000);
+            // Start periodic peer discovery
+        setInterval(() => this.discoverPeers(), 30000);  // Every 30 seconds
+        setInterval(() => this.maintainPeerConnections(), 60000);  // Every minute
         // Start mining interval
         setInterval(() => this.mineIfNeeded(), 10000); // Check every 10 seconds
 
@@ -258,29 +264,29 @@ export class Node {
         }
     }
 
-    // async startPeerDiscovery() {
-    //     // Initial connection to seed nodes
-    //     await this.connectToSeedNodes();
+    async startPeerDiscovery() {
+        // Initial connection to seed nodes
+        await this.connectToSeedNodes();
 
-    //     // Start periodic peer discovery
-    //     setInterval(async () => {
-    //         await this.discoverPeers();
-    //     }, 30000); // Every minute
+        // Start periodic peer discovery
+        setInterval(async () => {
+            await this.discoverPeers();
+        }, 30000); // Every minute
 
-    //     // Start local network discovery
-    //     this.startLocalDiscovery();
-    // }
+        // Start local network discovery
+        this.startLocalDiscovery();
+    }
 
-    // async connectToSeedNodes() {
-    //     console.log(`Node ${this.host}:${this.port} connecting to seed nodes...`);
-    //     for (const seed of this.seedNodes) {
-    //         try {
-    //             await this.addPeer(seed);
-    //         } catch (error) {
-    //             console.error(`Node ${this.host}:${this.port}: Failed to connect to seed node ${seed}:`, error.message);
-    //         }
-    //     }
-    // }
+    async connectToSeedNodes() {
+        console.log(`Node ${this.host}:${this.port} connecting to seed nodes...`);
+        for (const seed of this.seedNodes) {
+            try {
+                await this.addPeer(seed);
+            } catch (error) {
+                console.error(`Node ${this.host}:${this.port}: Failed to connect to seed node ${seed}:`, error.message);
+            }
+        }
+    }
 
     async discoverPeers() {
         if (this.peers.size >= this.maxPeers) return;
@@ -408,42 +414,42 @@ export class Node {
     }
 
 
-    // startLocalDiscovery() {
-    //     // Instead of UDP broadcast, we'll scan common local ports
-    //     const scanLocalNetwork = async () => {
-    //         // Scan local network on common ports
-    //         const commonPorts = [8333, 8334, 8335, 8336, 8337];
-    //         for (const port of commonPorts) {
-    //             if (port === this.port) continue; // Skip own port
+    startLocalDiscovery() {
+        // Instead of UDP broadcast, we'll scan common local ports
+        const scanLocalNetwork = async () => {
+            // Scan local network on common ports
+            const commonPorts = [8333, 8334, 8335, 8336, 8337];
+            for (const port of commonPorts) {
+                if (port === this.port) continue; // Skip own port
                 
-    //             try {
-    //                 const response = await fetch(`http://localhost:${port}/handshake`, {
-    //                     method: 'POST',
-    //                     headers: {
-    //                         'Content-Type': 'application/json',
-    //                         'x-auth-token': process.env.NETWORK_SECRET,
-    //                         'x-node-id': this.nodeId
-    //                     },
-    //                     body: JSON.stringify({
-    //                         nodeId: this.nodeId,
-    //                         port: this.port,
-    //                         version: '1.0'
-    //                     })
-    //                 });
+                try {
+                    const response = await fetch(`http://localhost:${port}/handshake`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-auth-token': process.env.NETWORK_SECRET,
+                            'x-node-id': this.nodeId
+                        },
+                        body: JSON.stringify({
+                            nodeId: this.nodeId,
+                            port: this.port,
+                            version: '1.0'
+                        })
+                    });
 
-    //                 if (response.ok) {
-    //                     await this.addPeer(`localhost:${port}`);
-    //                 }
-    //             } catch (error) {
-    //                 // Silently fail as the port might not be in use
-    //             }
-    //         }
-    //     };
+                    if (response.ok) {
+                        await this.addPeer(`localhost:${port}`);
+                    }
+                } catch (error) {
+                    // Silently fail as the port might not be in use
+                }
+            }
+        };
 
-    //     // Scan every 30 seconds
-    //     setInterval(scanLocalNetwork, 30000);
-    //     scanLocalNetwork(); // Initial scan
-    // }
+        // Scan every 30 seconds
+        setInterval(scanLocalNetwork, 30000);
+        scanLocalNetwork(); // Initial scan
+    }
 
     async addPeer(peerAddress) {
         // Clean up the peer address
