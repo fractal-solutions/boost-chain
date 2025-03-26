@@ -12,6 +12,7 @@ const dave = generateKeyPair();
 
 process.env.NETWORK_SECRET = 'test-secret-123';
 
+let chainState;
 async function displayChainState(nodePort, message) {
     console.log(`\n${message}`);
     try {
@@ -70,6 +71,7 @@ async function displayChainState(nodePort, message) {
                 console.log(`   ├─ To:   ${recipientKey ? `${formattedRecipientKey}` : 'SYSTEM'}`);
                 console.log(`   └─ Amount: ${tx.amount} tokens`);
             });
+            return chain;
         }
     } catch (error) {
         console.error('Error displaying chain state:', error);
@@ -78,6 +80,7 @@ async function displayChainState(nodePort, message) {
             message: error.message,
             stack: error.stack
         });
+        return error;
     }
 }
 
@@ -460,7 +463,7 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Display initial state
-    await displayChainState(3001, 'Initial blockchain state:');
+    chainState = await displayChainState(3001, 'Initial blockchain state:');
     await checkAllBalances(3001);
 
     // Series of transactions
@@ -484,7 +487,7 @@ async function main() {
     ];
 
     let count = 0;
-    while (true) {
+    while (count < 1) {
     // Execute each transaction
         for (const tx of transactions) {
             console.log('\n' + '='.repeat(80) + '\n');
@@ -524,7 +527,7 @@ async function main() {
 
         //const healthCheckInterval = setInterval(() => checkNodesHealth(nodes), 60000); // Every minute
         await checkNodesHealth(nodes);
-        await displayChainState(3001, "Chain: ")
+        chainState = await displayChainState(3001, "Chain: ")
         await new Promise(resolve => setTimeout(resolve, 1000));
         // Start new validator node
         console.log(`\n${'-'.repeat(30)}\nStarting new validator node on port ${3005 + count}\n${'-'.repeat(30)}`);
@@ -550,3 +553,77 @@ async function main() {
 }
 
 main().catch(console.error); 
+
+
+
+//Boost-Chain Server
+Bun.serve({
+    port: 2222,
+    routes: {
+        '/': (req) => {	
+            return Response.json({ message: 'Welcome to Boost-Chain' });
+        },
+        '/chain': async (req) => {
+            let chain = await displayChainState(3001, "FETCH CHAIN: ");
+            return Response.json({ chain });
+        },
+        '/txn': { 
+            POST: async (req) => {
+                const body = await req.json();
+                const { from, to, amount, type } = body;
+                const tx = { from, to, amount, type };
+                const result = await received_transaction(tx);
+                console.log('\n@@@@' + '='.repeat(80) + '\n');
+                return Response.json({ result });
+            }
+        },
+        '/deposit': {
+            POST: async req => {
+                const body = await req.json();
+                const to = body["to"];
+                const amount = body["amount"];
+                const tx = { from: null, to: to, amount: amount, type: "DEPOSIT" };
+                const result = await received_transaction(tx);
+                console.log('\n@@@@' + '='.repeat(80) + '\n');
+                return Response.json({ result });
+            }
+        },
+        '/withdraw': { 
+            POST: async (req) => {
+                const body = await req.json();
+                const { from, amount } = body;
+                const tx = { from, to: null, amount, type: "WITHDRAW" };
+                const result = await received_transaction(tx);
+                console.log('\n@@@@' + '='.repeat(80) + '\n');
+                return Response.json({ result });
+            }
+        },
+        '/newuser': async (req) => {
+            const user = generateKeyPair();
+            return Response.json({ user });
+        },
+        '/balance/:key': new Response(key),
+        
+    },
+})
+
+async function received_transaction(tx){
+    console.log('\n@@@@' + '='.repeat(80) + '\n');
+    console.log('\x1b[34m%s\x1b[0m', `\n@@@@Executing transaction: ${tx.message}`);
+    const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008];
+    const randomPort = ports[Math.floor(Math.random() * ports.length)];
+    const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort, tx.type);
+    
+    if (result.error) {
+        console.log('\x1b[31m%s\x1b[0m', `@@@@Transaction failed: ${result.error}`);
+        if (result.balance !== undefined) {
+            console.log('\x1b[31m%s\x1b[0m', `@@@@Available balance: ${result.balance}, Attempted: ${result.attempted}`);
+            return  `Transaction failed: ${result.error}` , `Available balance: ${result.balance}, Attempted: ${result.attempted}`
+        }
+        return '\x1b[31m%s\x1b[0m', `Transaction failed: ${result.error}`
+    } else {
+        console.log('\x1b[32m%s\x1b[0m', '@@@@Transaction successful');
+        return 'Transaction successful'
+    }
+    console.log('\n' + '='.repeat(80) + '\n');
+}
