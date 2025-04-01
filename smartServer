@@ -164,8 +164,19 @@ async function processBatchPayments(contracts) {
 }
 
 setInterval(async () => {
-    const contracts = contractManager.getAllContracts()
+    const contracts = contractManager.getAllContracts();
+    const batchContracts = contracts
         .filter(c => c.status === 'ACTIVE' && 
                 Date.now() >= new Date(c.nextPaymentDate).getTime());
-    await processBatchPayments(contracts);
+    console.log('Checking for scheduled payments...');
+    console.log('Contracts:', contracts.map(contract => ({
+                    contractId: contract.contractId,
+                    creator: contract.creator.publicKey,
+                    participants: contract.participants.map(p => p.publicKey),
+                    amount: contract.amount,
+                    status: contract.status,
+                    nextPaymentDate: contract.nextPaymentDate,
+                    endDate: contract.endDate,
+    })));
+    await processBatchPayments(batchContracts);
 }, 10000);
