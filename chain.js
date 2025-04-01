@@ -393,58 +393,20 @@ export class Blockchain {
         }
     }
 
-
-    getBalanceX(address) {
-        try {
-            if (!address) return 0;
-            let balance = 0;
-            
-            // Process all blocks including genesis
-            for (const block of this.chain) {
-                if (!block || !block.transactions) continue;
-                for (const tx of block.transactions) {
-                    if (!tx || typeof tx.amount !== 'number') continue;
-                    if (tx.sender === address) balance -= Number(tx.amount);
-                    if (tx.recipient === address) balance += Number(tx.amount);
-                }
-            }
-    
-            // Add pending transactions if they exist
-            if (Array.isArray(this.pendingTransactions)) {
-                for (const tx of this.pendingTransactions) {
-                    if (!tx || typeof tx.amount !== 'number') continue;
-                    if (tx.sender === address) balance -= Number(tx.amount);
-                    if (tx.recipient === address) balance += Number(tx.amount);
-                }
-            }
-    
-            return balance;
-        } catch (error) {
-            console.error('Error calculating balance:', error);
-            return 0;
-        }
-    }
-
     getBalance(address) {
-        this.updateBalanceCache();
-        return this.balanceCache.get(address) || 0;
-    }
-
-    updateBalanceCache() {
-        // Only process new blocks
+        // Use cached balance and only process new blocks
+        let balance = this.balanceCache.get(address) || 0;
+        
         for (let i = this.lastProcessedBlock; i < this.chain.length; i++) {
             const block = this.chain[i];
             for (const tx of block.transactions) {
-                if (tx.sender) {
-                    this.balanceCache.set(tx.sender, 
-                        (this.balanceCache.get(tx.sender) || 0) - tx.amount);
-                }
-                if (tx.recipient) {
-                    this.balanceCache.set(tx.recipient, 
-                        (this.balanceCache.get(tx.recipient) || 0) + tx.amount);
-                }
+                if (tx.sender === address) balance -= tx.amount;
+                if (tx.recipient === address) balance += tx.amount;
             }
         }
+        
+        this.balanceCache.set(address, balance);
         this.lastProcessedBlock = this.chain.length;
+        return balance;
     }
 }

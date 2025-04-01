@@ -152,32 +152,20 @@ Bun.serve({
     }
 });
 
-// Start automatic payment processing
+// Batch process payments
+async function processBatchPayments(contracts) {
+    const batchSize = 5;
+    for (let i = 0; i < contracts.length; i += batchSize) {
+        const batch = contracts.slice(i, i + batchSize);
+        await Promise.all(batch.map(contract => 
+            contractManager.executeScheduledPayment(contract)
+        ));
+    }
+}
+
 setInterval(async () => {
-
-    console.log('Checking for scheduled payments...');
-    const contracts = contractManager.getAllContracts();
-    console.log('Contracts:', contracts.map(contract => ({
-        contractId: contract.contractId,
-        creator: contract.creator.publicKey,
-        participants: contract.participants.map(p => p.publicKey),
-        amount: contract.amount,
-        status: contract.status,
-        nextPaymentDate: contract.nextPaymentDate,
-    })));
-    for (const contract of contracts) {
-        if (contract.status !== 'ACTIVE') continue;
-
-        const currentTime = Date.now();
-        const nextPaymentTime = new Date(contract.nextPaymentDate).getTime();
-
-        if (currentTime >= nextPaymentTime) {
-            console.log(`Processing payment for contract ${contract.contractId}`);
-            await contractManager.executeScheduledPayment(contract);
-        }
-    }
-    //contractManager.startContractMonitoring();
-
-
-    }
-, 10000); // Check every 10s
+    const contracts = contractManager.getAllContracts()
+        .filter(c => c.status === 'ACTIVE' && 
+                Date.now() >= new Date(c.nextPaymentDate).getTime());
+    await processBatchPayments(contracts);
+}, 10000);
