@@ -472,11 +472,11 @@ async function main() {
         { from: alice, to: null, amount: 100, message: 'Alice withdraws 100', type: "WITHDRAW" },
         { from: alice, to: bob, amount: 100, message: 'Alice sends 100 to Bob', type: "TRANSFER" },
         { from: bob, to: charlie, amount: 50, message: 'Bob sends 50 to Charlie', type: "TRANSFER" },
-        { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSFER" },
-        { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSFER" },
-        { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSFER" },
-        { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSFER" },
-        { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSFER" },
+        // { from: charlie, to: dave, amount: 75, message: 'Charlie sends 75 to Dave', type: "TRANSFER" },
+        // { from: dave, to: alice, amount: 25, message: 'Dave sends 25 to Alice', type: "TRANSFER" },
+        // { from: alice, to: charlie, amount: 200, message: 'Alice sends 200 to Charlie', type: "TRANSFER" },
+        // { from: bob, to: dave, amount: 150, message: 'Bob sends 150 to Dave', type: "TRANSFER" },
+        // { from: charlie, to: alice, amount: 100, message: 'Charlie sends 100 to Alice', type: "TRANSFER" },
         // { from: dave, to: bob, amount: 75, message: 'Dave sends 75 to Bob', type: "TRANSACTION"  },
         // { from: alice, to: dave, amount: 5000, message: 'Alice attempts to send more than she has', type: "TRANSACTION" },
         // { from: bob, to: alice, amount: 12500, message: 'Bob sends 12500 to Alice', type: "TRANSACTION" },
@@ -557,6 +557,7 @@ main().catch(console.error);
 
 
 //Boost-Chain Server
+console.log('Starting BOOST CHAIN Server on 2222...');
 Bun.serve({
     port: 2222,
     routes: {
@@ -602,7 +603,7 @@ Bun.serve({
             const user = generateKeyPair();
             return Response.json({ user });
         },
-        '/balance/:key': new Response(key),
+        //'/balance/:key': new Response(key),
         
     },
 })
@@ -627,3 +628,5 @@ async function received_transaction(tx){
     }
     console.log('\n' + '='.repeat(80) + '\n');
 }
+
+
