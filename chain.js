@@ -8,8 +8,8 @@ export class Blockchain {
         this.chain = [this.createGenesisBlock(genesisTransactions)];
 
         this.pendingTransactions = [];
-        this.minTransactionsPerBlock = 2; // Minimum transactions before mining (excluding reward)
-        this.maxTransactionsPerBlock = 5; // Maximum transactions per block
+        this.minTransactionsPerBlock = 5; // Minimum transactions before mining (excluding reward)
+        this.maxTransactionsPerBlock = 7; // Maximum transactions per block
         this.blockTimeTarget = 5000; // Target 10 seconds between blocks
         this.lastBlockTime = Date.now();
 
