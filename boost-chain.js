@@ -1,7 +1,8 @@
 import { Node, NodeType, generateKeyPair } from "./node.js";
 import { Transaction } from "./transaction.js";
 import { createHmac, randomBytes } from "crypto";
-import { authenticateToken, requireRole } from './middleware.js';
+import { authenticateToken, requireRole, requirePermission } from './middleware.js';
+import { ROLES } from './roles.js';
 
 // Create test accounts
 const alice = generateKeyPair();
@@ -561,14 +562,19 @@ Bun.serve({
         '/': (req) => {	
             return Response.json({ message: 'Welcome to Boost-Chain' });
         },
-        '/chain': async (req) => {
-            let chain = await displayChainState(3001, "FETCH CHAIN: ");
-            return Response.json({ chain });
+        '/chain': {
+            GET: async (req) => {
+                const auth = requirePermission('view_chain')(req);
+                if (!auth.authenticated) {
+                    return Response.json({ error: auth.error }, { status: auth.status });
+                }
+                let chain = await displayChainState(3001, "FETCH CHAIN: ");
+                return Response.json({ chain });
+            }
         },
         '/txn': { 
             POST: async (req) => {
-                // Check authentication
-                const auth = authenticateToken(req);
+                const auth = requirePermission('transfer')(req);
                 if (!auth.authenticated) {
                     return Response.json({ error: auth.error }, { status: auth.status });
                 }
@@ -583,7 +589,7 @@ Bun.serve({
         },
         '/deposit': {
             POST: async req => {
-                const auth = authenticateToken(req);
+                const auth = requirePermission('deposit')(req);
                 if (!auth.authenticated) {
                     return Response.json({ error: auth.error }, { status: auth.status });
                 }
@@ -599,7 +605,7 @@ Bun.serve({
         },
         '/withdraw': { 
             POST: async (req) => {
-                const auth = authenticateToken(req);
+                const auth = requirePermission('withdraw')(req);
                 if (!auth.authenticated) {
                     return Response.json({ error: auth.error }, { status: auth.status });
                 }
@@ -627,7 +633,7 @@ Bun.serve({
         },
         '/admin/users': {
             GET: async (req) => {
-                const auth = requireRole(['ADMIN'])(req);
+                const auth = requirePermission('manage_users')(req);
                 if (!auth.authenticated) {
                     return Response.json({ error: auth.error }, { status: auth.status });
                 }

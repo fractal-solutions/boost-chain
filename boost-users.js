@@ -1,8 +1,6 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-encryption-key-32-chars-long123';
+import { JWT_SECRET, ENCRYPTION_KEY } from './config.js';
 
 class UserManager {
     constructor() {
@@ -182,14 +180,6 @@ class UserManager {
         );
     }
 
-    validateToken(token) {
-        try {
-            return jwt.verify(token, JWT_SECRET);
-        } catch (error) {
-            return null;
-        }
-    }
-
     async authenticateUser(phoneNumber, password) {
         const userId = this.phoneNumberIndex.get(phoneNumber);
         if (!userId) {
@@ -263,7 +253,7 @@ Bun.serve({
             POST: async (req) => {
                 try {
                     const { token } = await req.json();
-                    const decoded = userManager.validateToken(token);
+                    const decoded = jwt.verify(token, JWT_SECRET);
                     if (!decoded) {
                         throw new Error('Invalid token');
                     }

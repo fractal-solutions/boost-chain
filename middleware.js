@@ -1,3 +1,7 @@
+import { ROLES, hasPermission } from './roles.js';
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from './config.js';
+
 export function authenticateToken(req) {
     try {
         const authHeader = req.headers.get('Authorization');
@@ -11,8 +15,8 @@ export function authenticateToken(req) {
             };
         }
 
-        const user = userManager.validateToken(token);
-        if (!user) {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (!decoded) {
             return {
                 authenticated: false,
                 error: 'Invalid token',
@@ -22,7 +26,7 @@ export function authenticateToken(req) {
 
         return {
             authenticated: true,
-            user
+            user: decoded
         };
     } catch (error) {
         return {
@@ -33,17 +37,36 @@ export function authenticateToken(req) {
     }
 }
 
-export function requireRole(roles) {
+export function requirePermission(permission) {
     return (req) => {
         const auth = authenticateToken(req);
         if (!auth.authenticated) {
             return auth;
         }
 
-        if (!roles.includes(auth.user.role)) {
+        if (!hasPermission(auth.user.role, permission)) {
             return {
                 authenticated: false,
-                error: 'Insufficient permissions',
+                error: `Permission denied: ${permission} required`,
+                status: 403
+            };
+        }
+
+        return auth;
+    };
+}
+
+export function requireRole(allowedRoles) {
+    return (req) => {
+        const auth = authenticateToken(req);
+        if (!auth.authenticated) {
+            return auth;
+        }
+
+        if (!allowedRoles.includes(auth.user.role)) {
+            return {
+                authenticated: false,
+                error: `Role denied: ${allowedRoles.join(' or ')} required`,
                 status: 403
             };
         }
