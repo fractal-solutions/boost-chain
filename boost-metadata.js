@@ -26,7 +26,7 @@ class ChainAnalytics {
             });
             
             if (!response.ok) {
-                throw new Error('Failed to fetch chain');
+                console.log(new Error('Failed to fetch chain'));
             }
 
             const { chain } = await response.json();

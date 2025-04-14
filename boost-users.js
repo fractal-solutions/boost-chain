@@ -12,29 +12,55 @@ class UserManager {
     }
 
     encryptPrivateKey(privateKey, password) {
-        const iv = randomBytes(16);
-        const cipher = createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
-        const encryptedKey = Buffer.concat([
-            cipher.update(privateKey),
-            cipher.final()
-        ]);
-        return {
-            iv: iv.toString('hex'),
-            encryptedKey: encryptedKey.toString('hex')
-        };
+        try {
+            // Generate a 32-byte key from the password
+            const key = createHash('sha256')
+                .update(ENCRYPTION_KEY)
+                .digest('hex')
+                .slice(0, 32);
+            
+            const iv = randomBytes(16);
+            const cipher = createCipheriv('aes-256-cbc', Buffer.from(key), iv);
+            
+            const encryptedKey = Buffer.concat([
+                cipher.update(privateKey),
+                cipher.final()
+            ]);
+            
+            return {
+                iv: iv.toString('hex'),
+                encryptedKey: encryptedKey.toString('hex')
+            };
+        } catch (error) {
+            console.error('Encryption error:', error);
+            throw new Error('Failed to encrypt private key');
+        }
     }
 
     decryptPrivateKey(encryptedData, password) {
-        const decipher = createDecipheriv(
-            'aes-256-cbc',
-            Buffer.from(ENCRYPTION_KEY),
-            Buffer.from(encryptedData.iv, 'hex')
-        );
-        const decryptedKey = Buffer.concat([
-            decipher.update(Buffer.from(encryptedData.encryptedKey, 'hex')),
-            decipher.final()
-        ]);
-        return decryptedKey.toString();
+        try {
+            // Generate the same 32-byte key from the password
+            const key = createHash('sha256')
+                .update(ENCRYPTION_KEY)
+                .digest('hex')
+                .slice(0, 32);
+            
+            const decipher = createDecipheriv(
+                'aes-256-cbc',
+                Buffer.from(key),
+                Buffer.from(encryptedData.iv, 'hex')
+            );
+            
+            const decryptedKey = Buffer.concat([
+                decipher.update(Buffer.from(encryptedData.encryptedKey, 'hex')),
+                decipher.final()
+            ]);
+            
+            return decryptedKey.toString();
+        } catch (error) {
+            console.error('Decryption error:', error);
+            throw new Error('Failed to decrypt private key');
+        }
     }
 
     async sendVerificationSMS(phoneNumber) {
@@ -211,104 +237,134 @@ class UserManager {
     }
 }
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+  };
+
 // Initialize user manager
 const userManager = new UserManager();
 
 // Start user management server
 console.log('Starting USER Management Server on 2225...');
-Bun.serve({
+  Bun.serve({
     port: 2225,
     routes: {
-        '/register': {
-            POST: async (req) => {
-                try {
-                    const userData = await req.json();
-                    const result = await userManager.createUser(userData);
-                    return Response.json(result);
-                } catch (error) {
-                    return Response.json({
-                        success: false,
-                        error: error.message
-                    }, { status: 400 });
-                }
-            }
+      '/register': {
+        POST: async (req) => {
+          try {
+            const userData = await req.json();
+            const result = await userManager.createUser(userData);
+            return Response.json(result, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false, 
+              error: error.message
+            }, { 
+              status: 400,
+              headers: corsHeaders 
+            });
+          }
         },
-
-        '/login': {
-            POST: async (req) => {
-                try {
-                    const { phoneNumber, password } = await req.json();
-                    const result = await userManager.authenticateUser(phoneNumber, password);
-                    return Response.json(result);
-                } catch (error) {
-                    return Response.json({
-                        success: false,
-                        error: error.message
-                    }, { status: 401 });
-                }
-            }
+      },
+  
+      '/login': {
+        POST: async (req) => {
+          try {
+            const { phoneNumber, password } = await req.json();
+            const result = await userManager.authenticateUser(phoneNumber, password);
+            return Response.json(result, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, { 
+              status: 401,
+              headers: corsHeaders 
+            });
+          }
         },
-
-        '/verify': {
-            POST: async (req) => {
-                try {
-                    const { token } = await req.json();
-                    const decoded = jwt.verify(token, JWT_SECRET);
-                    if (!decoded) {
-                        throw new Error('Invalid token');
-                    }
-                    return Response.json({
-                        success: true,
-                        user: decoded
-                    });
-                } catch (error) {
-                    return Response.json({
-                        success: false,
-                        error: error.message
-                    }, { status: 401 });
-                }
+      },
+  
+      '/verify': {
+        POST: async (req) => {
+          try {
+            const { token } = await req.json();
+            const decoded = jwt.verify(token, JWT_SECRET);
+            if (!decoded) {
+              throw new Error('Invalid token');
             }
+            return Response.json({
+              success: true,
+              user: decoded
+            }, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, { 
+              status: 401,
+              headers: corsHeaders 
+            });
+          }
         },
-
-        '/confirm-phone': {
-            POST: async (req) => {
-                try {
-                    const { phoneNumber, code } = await req.json();
-                    const verified = userManager.verifyPhone(phoneNumber, code);
-                    
-                    return Response.json({
-                        success: true,
-                        verified
-                    });
-                } catch (error) {
-                    return Response.json({
-                        success: false,
-                        error: error.message
-                    }, { status: 400 });
-                }
-            }
+      },
+  
+      '/confirm-phone': {
+        POST: async (req) => {
+          try {
+            const { phoneNumber, code } = await req.json();
+            const verified = userManager.verifyPhone(phoneNumber, code);
+            return Response.json({
+              success: true,
+              verified
+            }, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, { 
+              status: 400,
+              headers: corsHeaders 
+            });
+          }
         },
-
-        '/verify-phone': {
-            POST: async (req) => {
-                try {
-                    const { phoneNumber } = await req.json();
-                    const sent = await userManager.sendVerificationSMS(phoneNumber);
-                    
-                    return Response.json({
-                        success: sent,
-                        message: sent ? 'Verification code sent' : 'Failed to send code'
-                    });
-                } catch (error) {
-                    return Response.json({
-                        success: false,
-                        error: error.message
-                    }, { status: 400 });
-                }
-            }
+      },
+  
+      '/verify-phone': {
+        POST: async (req) => {
+          try {
+            const { phoneNumber } = await req.json();
+            const sent = await userManager.sendVerificationSMS(phoneNumber);
+            return Response.json({
+              success: sent,
+              message: sent ? 'Verification code sent' : 'Failed to send code'
+            }, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, { 
+              status: 400,
+              headers: corsHeaders 
+            });
+          }
         },
+      }
+    },
+  
+    // Global fetch handler for OPTIONS requests
+    fetch(req) {
+      if (req.method === 'OPTIONS') {
+        return new Response(null, {
+          status: 204,
+          headers: corsHeaders
+        });
+      }
     }
-});
+  });
 
 
 // curl -X POST http://localhost:2225/register \

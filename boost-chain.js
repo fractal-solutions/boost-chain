@@ -564,10 +564,10 @@ Bun.serve({
         },
         '/chain': {
             GET: async (req) => {
-                const auth = requirePermission('view_chain')(req);
-                if (!auth.authenticated) {
-                    return Response.json({ error: auth.error }, { status: auth.status });
-                }
+                // const auth = requirePermission('view_chain')(req);
+                // if (!auth.authenticated) {
+                //     return Response.json({ error: auth.error }, { status: auth.status });
+                // }
                 let chain = await displayChainState(3001, "FETCH CHAIN: ");
                 return Response.json({ chain });
             }
