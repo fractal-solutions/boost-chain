@@ -1,8 +1,7 @@
 import { Node, NodeType, generateKeyPair } from "./node.js";
 import { Transaction } from "./transaction.js";
 import { createHmac, randomBytes } from "crypto";
-
-
+import { authenticateToken, requireRole } from './middleware.js';
 
 // Create test accounts
 const alice = generateKeyPair();
@@ -554,8 +553,6 @@ async function main() {
 
 main().catch(console.error); 
 
-
-
 //Boost-Chain Server
 console.log('Starting BOOST CHAIN Server on 2222...');
 Bun.serve({
@@ -570,6 +567,12 @@ Bun.serve({
         },
         '/txn': { 
             POST: async (req) => {
+                // Check authentication
+                const auth = authenticateToken(req);
+                if (!auth.authenticated) {
+                    return Response.json({ error: auth.error }, { status: auth.status });
+                }
+
                 const body = await req.json();
                 const { from, to, amount, type } = body;
                 const tx = { from, to, amount, type };
@@ -580,6 +583,11 @@ Bun.serve({
         },
         '/deposit': {
             POST: async req => {
+                const auth = authenticateToken(req);
+                if (!auth.authenticated) {
+                    return Response.json({ error: auth.error }, { status: auth.status });
+                }
+
                 const body = await req.json();
                 const to = body["to"];
                 const amount = body["amount"];
@@ -591,6 +599,11 @@ Bun.serve({
         },
         '/withdraw': { 
             POST: async (req) => {
+                const auth = authenticateToken(req);
+                if (!auth.authenticated) {
+                    return Response.json({ error: auth.error }, { status: auth.status });
+                }
+
                 const body = await req.json();
                 const { from, amount } = body;
                 const tx = { from, to: null, amount, type: "WITHDRAW" };
@@ -599,14 +612,40 @@ Bun.serve({
                 return Response.json({ result });
             }
         },
+        '/balance': {
+            GET: async (req) => {
+                const auth = authenticateToken(req);
+                if (!auth.authenticated) {
+                    return Response.json({ error: auth.error }, { status: auth.status });
+                }
+                // ... balance handling
+            }
+        },
         '/newuser': async (req) => {
             const user = generateKeyPair();
             return Response.json({ user });
         },
-        //'/balance/:key': new Response(key),
-        
-    },
-})
+        '/admin/users': {
+            GET: async (req) => {
+                const auth = requireRole(['ADMIN'])(req);
+                if (!auth.authenticated) {
+                    return Response.json({ error: auth.error }, { status: auth.status });
+                }
+                // ... admin functionality
+            }
+        }
+    }
+});
+
+// Make authenticated request
+// curl -X POST http://localhost:2222/txn \
+// -H "Content-Type: application/json" \
+// -H "Authorization: Bearer your-jwt-token" \
+// -d '{
+//     "from": "sender_address",
+//     "to": "recipient_address",
+//     "amount": 100
+// }'
 
 async function received_transaction(tx){
     console.log('\n@@@@' + '='.repeat(80) + '\n');
