@@ -145,6 +145,13 @@ class ChainAnalytics {
 // Initialize analytics
 const analytics = new ChainAnalytics();
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token',
+    'Access-Control-Max-Age': '86400',
+};
+
 // Start metadata server
 console.log('Starting METADATA Server on 2224...');
 Bun.serve({
@@ -155,7 +162,7 @@ Bun.serve({
                 message: 'Boost Chain Metadata Service',
                 lastSync: analytics.lastSync ? 
                     new Date(analytics.lastSync).toISOString() : null
-            });
+            }, { headers: corsHeaders });
         },
 
         '/balance': {
@@ -163,11 +170,14 @@ Bun.serve({
                 try {
                     const { address } = await req.json();
                     const balance = analytics.getBalance(address);
-                    return Response.json({ address, balance });
+                    return Response.json({ address, balance }, { headers: corsHeaders });
                 } catch (error) {
                     return Response.json({ 
                         error: error.message 
-                    }, { status: 400 });
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders 
+                    });
                 }
             }
         },
@@ -177,11 +187,19 @@ Bun.serve({
                 try {
                     const { address } = await req.json();
                     const history = analytics.getTransactionHistory(address);
-                    return Response.json({ address, transactions: history });
+                    return Response.json({ 
+                        address, 
+                        transactions: history 
+                    }, { 
+                        headers: corsHeaders 
+                    });
                 } catch (error) {
                     return Response.json({ 
                         error: error.message 
-                    }, { status: 400 });
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders 
+                    });
                 }
             }
         },
@@ -191,11 +209,19 @@ Bun.serve({
                 try {
                     const { address, limit = 10 } = await req.json();
                     const transactions = analytics.getLastTransactions(address, limit);
-                    return Response.json({ address, transactions });
+                    return Response.json({ 
+                        address, 
+                        transactions 
+                    }, { 
+                        headers: corsHeaders 
+                    });
                 } catch (error) {
                     return Response.json({ 
                         error: error.message 
-                    }, { status: 400 });
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders 
+                    });
                 }
             }
         },
@@ -205,11 +231,19 @@ Bun.serve({
                 try {
                     const { address } = await req.json();
                     const stats = analytics.getAddressStats(address);
-                    return Response.json({ address, stats });
+                    return Response.json({ 
+                        address, 
+                        stats 
+                    }, { 
+                        headers: corsHeaders 
+                    });
                 } catch (error) {
                     return Response.json({ 
                         error: error.message 
-                    }, { status: 400 });
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders 
+                    });
                 }
             }
         },
@@ -219,6 +253,8 @@ Bun.serve({
             return Response.json({ 
                 message: 'Chain synced',
                 timestamp: new Date(analytics.lastSync).toISOString()
+            }, { 
+                headers: corsHeaders 
             });
         },
 
@@ -236,7 +272,18 @@ Bun.serve({
                 lastSync: analytics.lastSync ? 
                     new Date(analytics.lastSync).toISOString() : null,
                 addresses
+            }, { 
+                headers: corsHeaders 
             });
+        },
+
+        '/*': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            }
         }
     }
 });

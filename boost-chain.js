@@ -555,6 +555,17 @@ async function main() {
 main().catch(console.error); 
 
 //Boost-Chain Server
+const corsHeaders = {
+    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token',
+    'Access-Control-Max-Age': '86400',
+};
+
+const baseHeaders = {
+    ...corsHeaders,
+    'Content-Type': 'application/json'
+  };
 console.log('Starting BOOST CHAIN Server on 2222...');
 Bun.serve({
     port: 2222,
@@ -576,7 +587,10 @@ Bun.serve({
             POST: async (req) => {
                 const auth = requirePermission('transfer')(req);
                 if (!auth.authenticated) {
-                    return Response.json({ error: auth.error }, { status: auth.status });
+                    return Response.json({ error: auth.error }, { 
+                        status: auth.status,
+                        headers: baseHeaders 
+                    });
                 }
 
                 const body = await req.json();
@@ -584,38 +598,76 @@ Bun.serve({
                 const tx = { from, to, amount, type };
                 const result = await received_transaction(tx);
                 console.log('\n@@@@' + '='.repeat(80) + '\n');
-                return Response.json({ result });
+                return Response.json({ result }, { headers: baseHeaders });
             }
         },
         '/deposit': {
             POST: async req => {
+                // Add CORS headers to auth check
                 const auth = requirePermission('deposit')(req);
                 if (!auth.authenticated) {
-                    return Response.json({ error: auth.error }, { status: auth.status });
+                    return Response.json({ 
+                        error: auth.error 
+                    }, { 
+                        status: auth.status,
+                        headers: corsHeaders  // Add CORS headers
+                    });
                 }
 
-                const body = await req.json();
-                const to = body["to"];
-                const amount = body["amount"];
-                const tx = { from: null, to: to, amount: amount, type: "DEPOSIT" };
-                const result = await received_transaction(tx);
-                console.log('\n@@@@' + '='.repeat(80) + '\n');
-                return Response.json({ result });
+                try {
+                    const body = await req.json();
+                    const to = body["to"];
+                    const amount = body["amount"];
+                    const tx = { from: null, to: to, amount: amount, type: "DEPOSIT" };
+                    const result = await received_transaction(tx);
+                    return Response.json({ 
+                        result 
+                    }, { 
+                        headers: corsHeaders  // Add CORS headers
+                    });
+                } catch (error) {
+                    return Response.json({ 
+                        error: error.message 
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders  // Add CORS headers
+                    });
+                }
             }
         },
         '/withdraw': { 
             POST: async (req) => {
+                // Add CORS headers to auth check
+                
                 const auth = requirePermission('withdraw')(req);
                 if (!auth.authenticated) {
-                    return Response.json({ error: auth.error }, { status: auth.status });
+                    return Response.json({ 
+                        error: auth.error 
+                    }, { 
+                        status: auth.status,
+                        headers: corsHeaders  // Add CORS headers
+                    });
                 }
 
-                const body = await req.json();
-                const { from, amount } = body;
-                const tx = { from, to: null, amount, type: "WITHDRAW" };
-                const result = await received_transaction(tx);
-                console.log('\n@@@@' + '='.repeat(80) + '\n');
-                return Response.json({ result });
+                try {
+                    const body = await req.json();
+                    //console.log(body)
+                    const { from, amount } = body;
+                    const tx = { from, to: null, amount, type: "WITHDRAW" };
+                    const result = await received_transaction(tx);
+                    return Response.json({ 
+                        result 
+                    }, { 
+                        headers: corsHeaders  // Add CORS headers
+                    });
+                } catch (error) {
+                    return Response.json({ 
+                        error: error.message 
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders  // Add CORS headers
+                    });
+                }
             }
         },
         '/balance': {
@@ -639,6 +691,14 @@ Bun.serve({
                 }
                 // ... admin functionality
             }
+        },
+        '/*': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            }
         }
     }
 });
@@ -658,7 +718,14 @@ async function received_transaction(tx){
     console.log('\x1b[34m%s\x1b[0m', `\n@@@@Executing transaction: ${tx.message}`);
     const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008];
     const randomPort = ports[Math.floor(Math.random() * ports.length)];
-    const result = await sendTransaction(tx.from, tx.to, tx.amount, randomPort, tx.type);
+    let fromKey = null;
+
+    if (tx.type != 'WITHDRAW') fromKey = tx.from ? { publicKey: tx.from } : null;
+    if (tx.type === 'WITHDRAW') fromKey = tx.from ? { publicKey: tx.from.publicKey, privateKey: tx.from.privateKey } : null;
+    const toKey = tx.to ? { publicKey: tx.to } : null;
+
+
+    const result = await sendTransaction(fromKey, toKey, tx.amount, randomPort, tx.type);
     
     if (result.error) {
         console.log('\x1b[31m%s\x1b[0m', `@@@@Transaction failed: ${result.error}`);
@@ -669,6 +736,8 @@ async function received_transaction(tx){
         return '\x1b[31m%s\x1b[0m', `Transaction failed: ${result.error}`
     } else {
         console.log('\x1b[32m%s\x1b[0m', '@@@@Transaction successful');
+        // Run sync after every successful transaction
+        await fetch('http://localhost:2224/sync').then(res => res.json());
         return 'Transaction successful'
     }
     console.log('\n' + '='.repeat(80) + '\n');
