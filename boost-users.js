@@ -75,7 +75,7 @@ class UserManager {
         });
 
         try {
-            // Here you would integrate with an SMS service like Twilio
+            // Here I'll integrate with an SMS service like Twilio
             // For demonstration, we'll just log the code
             console.log(`Verification code for ${phoneNumber}: ${code}`);
             
