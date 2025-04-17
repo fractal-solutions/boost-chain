@@ -200,6 +200,7 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
             }
 
             // transaction needs signing
+            console.log(from);
             const transaction = new Transaction(from.publicKey, to.publicKey, amount);
             transaction.signTransaction(from.privateKey); 
             const nodePublicKey = await getNodePublicKey(targetPort);
@@ -585,20 +586,36 @@ Bun.serve({
         },
         '/txn': { 
             POST: async (req) => {
+                // Add CORS headers to auth check
                 const auth = requirePermission('transfer')(req);
                 if (!auth.authenticated) {
-                    return Response.json({ error: auth.error }, { 
+                    return Response.json({ 
+                        error: auth.error 
+                    }, { 
                         status: auth.status,
-                        headers: baseHeaders 
+                        headers: corsHeaders  // Use corsHeaders instead of baseHeaders
                     });
                 }
 
-                const body = await req.json();
-                const { from, to, amount, type } = body;
-                const tx = { from, to, amount, type };
-                const result = await received_transaction(tx);
-                console.log('\n@@@@' + '='.repeat(80) + '\n');
-                return Response.json({ result }, { headers: baseHeaders });
+                try {
+                    const body = await req.json();
+                    const { from, to, amount, type } = body;
+                    const tx = { from, to, amount, type };
+                    const result = await received_transaction(tx);
+                    console.log('\n@@@@' + '='.repeat(80) + '\n');
+                    return Response.json({ 
+                        result 
+                    }, { 
+                        headers: corsHeaders  // Use corsHeaders instead of baseHeaders
+                    });
+                } catch (error) {
+                    return Response.json({ 
+                        error: error.message 
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders  // Use corsHeaders instead of baseHeaders
+                    });
+                }
             }
         },
         '/deposit': {
@@ -713,17 +730,33 @@ Bun.serve({
 //     "amount": 100
 // }'
 
-async function received_transaction(tx){
+async function received_transaction(tx) {
     console.log('\n@@@@' + '='.repeat(80) + '\n');
-    console.log('\x1b[34m%s\x1b[0m', `\n@@@@Executing transaction: ${tx.message}`);
+    console.log('\x1b[34m%s\x1b[0m', `\n@@@@Executing transaction: ${tx.type}`);
     const ports = [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008];
     const randomPort = ports[Math.floor(Math.random() * ports.length)];
+    
     let fromKey = null;
+    let toKey = null;
 
-    if (tx.type != 'WITHDRAW') fromKey = tx.from ? { publicKey: tx.from } : null;
-    if (tx.type === 'WITHDRAW') fromKey = tx.from ? { publicKey: tx.from.publicKey, privateKey: tx.from.privateKey } : null;
-    const toKey = tx.to ? { publicKey: tx.to } : null;
-
+    // Handle different transaction types
+    switch (tx.type) {
+        case 'DEPOSIT':
+            fromKey = null;
+            toKey = { publicKey: tx.to };
+            break;
+        case 'WITHDRAW':
+            fromKey = tx.from ? { publicKey: tx.from.publicKey, privateKey: tx.from.privateKey } : null;
+            toKey = null;
+            break;
+        case 'TRANSFER':
+            fromKey = tx.from ? {
+                publicKey: tx.from.publicKey,
+                privateKey: tx.from.privateKey
+            } : null;
+            toKey = tx.to ? { publicKey: tx.to } : null;
+            break;
+    }
 
     const result = await sendTransaction(fromKey, toKey, tx.amount, randomPort, tx.type);
     
@@ -731,16 +764,15 @@ async function received_transaction(tx){
         console.log('\x1b[31m%s\x1b[0m', `@@@@Transaction failed: ${result.error}`);
         if (result.balance !== undefined) {
             console.log('\x1b[31m%s\x1b[0m', `@@@@Available balance: ${result.balance}, Attempted: ${result.attempted}`);
-            return  `Transaction failed: ${result.error}` , `Available balance: ${result.balance}, Attempted: ${result.attempted}`
+            return `Transaction failed: ${result.error}`;
         }
-        return '\x1b[31m%s\x1b[0m', `Transaction failed: ${result.error}`
+        return result.error;
     } else {
         console.log('\x1b[32m%s\x1b[0m', '@@@@Transaction successful');
         // Run sync after every successful transaction
         await fetch('http://localhost:2224/sync').then(res => res.json());
-        return 'Transaction successful'
+        return 'Transaction successful';
     }
-    console.log('\n' + '='.repeat(80) + '\n');
 }
 
 

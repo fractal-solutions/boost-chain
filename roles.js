@@ -1,6 +1,6 @@
 export const ROLES = {
     ADMIN: 'ADMIN',
-    SME: 'SME',
+    VENDOR: 'VENDOR',
     USER: 'USER',
     VALIDATOR: 'VALIDATOR'
 };
@@ -15,7 +15,7 @@ export const PERMISSIONS = {
         'transfer',
         'view_chain'
     ],
-    SME: [
+    VENDOR: [
         'transfer',
         'deposit',
         'withdraw',

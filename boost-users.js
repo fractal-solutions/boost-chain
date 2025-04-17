@@ -235,6 +235,30 @@ class UserManager {
             throw new Error('Invalid credentials');
         }
     }
+
+    getUserByUsername(username) {
+        const userId = this.usernameIndex.get(username);
+        if (!userId) {
+            throw new Error('User not found');
+        }
+        const user = this.users.get(userId);
+        return {
+            username: user.username,
+            publicKey: user.publicKey
+        };
+    }
+
+    getUserByPhone(phoneNumber) {
+        const userId = this.phoneNumberIndex.get(phoneNumber);
+        if (!userId) {
+            throw new Error('User not found');
+        }
+        const user = this.users.get(userId);
+        return {
+            phoneNumber: user.phoneNumber,
+            publicKey: user.publicKey
+        };
+    }
 }
 
 const corsHeaders = {
@@ -352,6 +376,48 @@ console.log('Starting USER Management Server on 2225...');
             });
           }
         },
+      },
+
+      '/user/by-username': {
+        POST: async (req) => {
+          try {
+            const { username } = await req.json();
+            const user = userManager.getUserByUsername(username);
+            return Response.json({
+              success: true,
+              data: user
+            }, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, { 
+              status: 404,
+              headers: corsHeaders 
+            });
+          }
+        }
+      },
+
+      '/user/by-phone': {
+        POST: async (req) => {
+          try {
+            const { phoneNumber } = await req.json();
+            const user = userManager.getUserByPhone(phoneNumber);
+            return Response.json({
+              success: true,
+              data: user
+            }, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, { 
+              status: 404,
+              headers: corsHeaders 
+            });
+          }
+        }
       }
     },
   
