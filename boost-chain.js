@@ -617,7 +617,7 @@ Bun.serve({
                     });
                 }
             }
-        },
+        }, 
         '/deposit': {
             POST: async req => {
                 // Add CORS headers to auth check
