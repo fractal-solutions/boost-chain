@@ -510,7 +510,7 @@ const server = Bun.serve({
       '/payment-request': {
         POST: async (req) => {
           try {
-            const { userId, vendorId, amount } = await req.json();
+            const { userId, vendorId, amount, purchaseId } = await req.json();
             
             // Ensure consistent phone number formatting
             const formattedUserId = (userId.startsWith('+') ? userId : '+' + userId).split(" ").join("");
@@ -519,7 +519,8 @@ const server = Bun.serve({
             console.log('Payment request:', { 
                 userId: formattedUserId, 
                 vendorId: formattedVendorId, 
-                amount 
+                amount ,
+                purchaseId
             });
             
             server.publish(`user-${formattedUserId}`, 
@@ -527,7 +528,8 @@ const server = Bun.serve({
                     type: 'payment-request',
                     data: {
                         vendorId: formattedVendorId,
-                        amount
+                        amount,
+                        purchaseId
                     }
                 }));
                 
@@ -547,7 +549,7 @@ const server = Bun.serve({
       '/payment-complete': {
         POST: async (req) => {
             try {
-                const { userId, vendorId, amount, status } = await req.json();
+                const { userId, vendorId, amount, status, purchaseId } = await req.json();
                 
                 // Ensure consistent phone number formatting
                 const formattedUserId = (userId.startsWith('+') ? userId : '+' + userId).split(" ").join("");
@@ -566,7 +568,8 @@ const server = Bun.serve({
                         data: {
                             userId: formattedUserId,
                             amount,
-                            status
+                            status,
+                            purchaseId,
                         }
                     }));
                     
@@ -577,6 +580,12 @@ const server = Bun.serve({
                     headers: corsHeaders 
                 });
             } catch (error) {
+              
+              server.publish(`vendor-${formattedVendorId}`, 
+                JSON.stringify({
+                    type: 'payment-error',
+                    purchaseId: purchaseId,
+                }));
                 return Response.json({
                     success: false,
                     error: error.message
