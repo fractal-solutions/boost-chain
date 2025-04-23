@@ -273,7 +273,7 @@ const userManager = new UserManager();
 
 // Start user management server
 console.log('Starting USER Management Server on 2225...');
-  Bun.serve({
+const server = Bun.serve({
     port: 2225,
     routes: {
       '/register': {
@@ -418,11 +418,62 @@ console.log('Starting USER Management Server on 2225...');
             });
           }
         }
-      }
-    },
+      },
+
+      '/payment-request': {
+        POST: async (req) => {
+          const { userId, vendorId, amount } = await req.json();
+          server.publish(`user-${userId}`, 
+            JSON.stringify({
+              type: 'payment-request',
+              data: {
+                vendorId,
+                amount
+              }
+            }));
+          return new Response('Payment request sent', { status: 200 });
+        }
+      },
   
-    // Global fetch handler for OPTIONS requests
-    fetch(req) {
+      '/payment-complete': {
+        POST: async (req) => {
+          const { userId, vendorId, amount } = await req.json();
+          server.publish(`vendor-${vendorId}`, 
+            JSON.stringify({
+              type: 'payment-complete',
+              data: {
+                userId,
+                amount,
+                status,
+              }
+            }));
+          return new Response('Payment complete', { status: 200 });
+        }
+      },
+    },
+
+    websocket: {
+      open(ws) {
+        ws.subscribe(`${ws.data.type}-${ws.data.id}`);
+      },
+      message(ws, message) {},
+      close(ws) {
+        ws.unsubscribe(`${ws.data.type}-${ws.data.id}`);
+      },
+    },
+    // Global fetch handler
+    fetch(req, server) {
+      const url = new URL(req.url);
+        // WebSocket upgrade must be handled on GET, not POST
+      if (url.pathname === "/ws" && req.method === "GET") {
+        const clientType = url.searchParams.get("clientType");
+        const id = url.searchParams.get("id");
+        const success = server.upgrade(req, { data: { clientType, id } });
+        return success
+            ? undefined
+            : new Response("WebSocket upgrade error", { status: 400 });
+      }
+
       if (req.method === 'OPTIONS') {
         return new Response(null, {
           status: 204,
