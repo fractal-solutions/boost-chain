@@ -1,6 +1,8 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, ENCRYPTION_KEY } from './config.js';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 class UserManager {
     constructor() {
@@ -9,26 +11,108 @@ class UserManager {
         this.usernameIndex = new Map();
         this.verificationCodes = new Map();
         this.verificationAttempts = new Map();
+        this.filePath = join(process.cwd(), 'data', 'users.json');
+        
+        // Load existing users on startup
+        this.loadUsers();
+    }
+
+    loadUsers() {
+        try {
+            // Create data directory if it doesn't exist
+            const dataDir = dirname(this.filePath);
+            if (!existsSync(dataDir)) {
+                Bun.write(dataDir, '');
+            }
+
+            // Create users file if it doesn't exist
+            if (!existsSync(this.filePath)) {
+                this.saveUsers(); // Save empty state
+                return;
+            }
+
+            // Read and parse the file
+            const data = JSON.parse(readFileSync(this.filePath, 'utf8'));
+            
+            // Clear existing data
+            this.users.clear();
+            this.phoneNumberIndex.clear();
+            this.usernameIndex.clear();
+
+            // Restore users and indexes
+            for (const userData of data) {
+                const user = {
+                    ...userData,
+                    encryptedPrivateKey: {
+                        iv: userData.encryptedPrivateKey.iv,
+                        salt: userData.encryptedPrivateKey.salt || '', // Handle legacy data
+                        encryptedKey: userData.encryptedPrivateKey.encryptedKey
+                    }
+                };
+
+                this.users.set(user.id, user);
+                this.phoneNumberIndex.set(user.phoneNumber, user.id);
+                this.usernameIndex.set(user.username, user.id);
+            }
+
+            console.log(`Loaded ${this.users.size} users from ${this.filePath}`);
+        } catch (error) {
+            console.error('Error loading users:', error);
+            this.users.clear();
+            this.phoneNumberIndex.clear();
+            this.usernameIndex.clear();
+        }
+    }
+
+    saveUsers() {
+        try {
+            // Convert Map to array and ensure proper data formatting
+            const data = Array.from(this.users.values()).map(user => ({
+                ...user,
+                encryptedPrivateKey: {
+                    iv: user.encryptedPrivateKey.iv,
+                    salt: user.encryptedPrivateKey.salt,
+                    encryptedKey: user.encryptedPrivateKey.encryptedKey
+                }
+            }));
+            
+            // Create data directory if it doesn't exist
+            const dataDir = dirname(this.filePath);
+            if (!existsSync(dataDir)) {
+                Bun.write(dataDir, '');
+            }
+
+            // Write to file with pretty formatting
+            writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf8');
+            console.log(`Saved ${data.length} users to ${this.filePath}`);
+        } catch (error) {
+            console.error('Error saving users:', error);
+            throw error;
+        }
     }
 
     encryptPrivateKey(privateKey, password) {
         try {
-            // Generate a 32-byte key from the password
+            // Generate a unique salt for each encryption
+            const salt = randomBytes(16);
+            
+            // Generate key from password and salt
             const key = createHash('sha256')
-                .update(ENCRYPTION_KEY)
-                .digest('hex')
+                .update(password + salt.toString('hex'))
+                .digest()
                 .slice(0, 32);
             
             const iv = randomBytes(16);
             const cipher = createCipheriv('aes-256-cbc', Buffer.from(key), iv);
             
             const encryptedKey = Buffer.concat([
-                cipher.update(privateKey),
+                cipher.update(Buffer.from(privateKey)),
                 cipher.final()
             ]);
             
             return {
                 iv: iv.toString('hex'),
+                salt: salt.toString('hex'),
                 encryptedKey: encryptedKey.toString('hex')
             };
         } catch (error) {
@@ -39,10 +123,10 @@ class UserManager {
 
     decryptPrivateKey(encryptedData, password) {
         try {
-            // Generate the same 32-byte key from the password
+            // Recreate key using the same password and saved salt
             const key = createHash('sha256')
-                .update(ENCRYPTION_KEY)
-                .digest('hex')
+                .update(password + encryptedData.salt)
+                .digest()
                 .slice(0, 32);
             
             const decipher = createDecipheriv(
@@ -59,7 +143,7 @@ class UserManager {
             return decryptedKey.toString();
         } catch (error) {
             console.error('Decryption error:', error);
-            throw new Error('Failed to decrypt private key');
+            throw new Error('Invalid credentials');
         }
     }
 
@@ -171,6 +255,9 @@ class UserManager {
             this.users.set(user.id, user);
             this.phoneNumberIndex.set(user.phoneNumber, user.id);
             this.usernameIndex.set(user.username, user.id);
+
+            // Save to file
+            this.saveUsers();
 
             // Generate JWT token
             const token = this.generateToken(user);
@@ -422,32 +509,82 @@ const server = Bun.serve({
 
       '/payment-request': {
         POST: async (req) => {
-          const { userId, vendorId, amount } = await req.json();
-          server.publish(`user-${userId}`, 
-            JSON.stringify({
-              type: 'payment-request',
-              data: {
-                vendorId,
-                amount
-              }
-            }));
-          return new Response('Payment request sent', { status: 200 });
+          try {
+            const { userId, vendorId, amount } = await req.json();
+            
+            // Ensure consistent phone number formatting
+            const formattedUserId = (userId.startsWith('+') ? userId : '+' + userId).split(" ").join("");
+            const formattedVendorId = (vendorId.startsWith('+') ? vendorId : '+' + vendorId).split(" ").join("");
+            
+            console.log('Payment request:', { 
+                userId: formattedUserId, 
+                vendorId: formattedVendorId, 
+                amount 
+            });
+            
+            server.publish(`user-${formattedUserId}`, 
+                JSON.stringify({
+                    type: 'payment-request',
+                    data: {
+                        vendorId: formattedVendorId,
+                        amount
+                    }
+                }));
+                
+            return Response.json({
+                success: true,
+                message: 'Payment request sent'
+            }, { headers: corsHeaders });
+        } catch (error) {
+            return Response.json({
+                success: false,
+                error: error.message
+            }, { status: 400, headers: corsHeaders });
         }
-      },
-  
+      }
+    },
+
       '/payment-complete': {
         POST: async (req) => {
-          const { userId, vendorId, amount } = await req.json();
-          server.publish(`vendor-${vendorId}`, 
-            JSON.stringify({
-              type: 'payment-complete',
-              data: {
-                userId,
-                amount,
-                status,
-              }
-            }));
-          return new Response('Payment complete', { status: 200 });
+            try {
+                const { userId, vendorId, amount, status } = await req.json();
+                
+                // Ensure consistent phone number formatting
+                const formattedUserId = (userId.startsWith('+') ? userId : '+' + userId).split(" ").join("");
+                const formattedVendorId = (vendorId.startsWith('+') ? vendorId : '+' + vendorId).split(" ").join("");
+                
+                console.log('Payment complete:', { 
+                    userId: formattedUserId, 
+                    vendorId: formattedVendorId, 
+                    amount, 
+                    status 
+                });
+                
+                server.publish(`vendor-${formattedVendorId}`, 
+                    JSON.stringify({
+                        type: 'payment-complete',
+                        data: {
+                            userId: formattedUserId,
+                            amount,
+                            status
+                        }
+                    }));
+                    
+                return Response.json({
+                    success: true,
+                    message: 'Payment complete'
+                }, { 
+                    headers: corsHeaders 
+                });
+            } catch (error) {
+                return Response.json({
+                    success: false,
+                    error: error.message
+                }, { 
+                    status: 400,
+                    headers: corsHeaders 
+                });
+            }
         }
       },
     },
@@ -455,25 +592,44 @@ const server = Bun.serve({
     websocket: {
       open(ws) {
         ws.subscribe(`${ws.data.type}-${ws.data.id}`);
+        console.log('WebSocket connection opened:', ws.data.type, ws.data.id);
       },
       message(ws, message) {},
       close(ws) {
         ws.unsubscribe(`${ws.data.type}-${ws.data.id}`);
+        console.log('WebSocket connection closed:', ws.data.type, ws.data.id);
       },
     },
     // Global fetch handler
     fetch(req, server) {
       const url = new URL(req.url);
-        // WebSocket upgrade must be handled on GET, not POST
       if (url.pathname === "/ws" && req.method === "GET") {
         const clientType = url.searchParams.get("clientType");
-        const id = url.searchParams.get("id");
-        const success = server.upgrade(req, { data: { clientType, id } });
-        return success
-            ? undefined
-            : new Response("WebSocket upgrade error", { status: 400 });
-      }
+        let id = url.searchParams.get("id");
+        
+        if (!clientType || !id) {
+          return new Response("Missing clientType or id", { status: 400 });
+        }
 
+        // Format phone number consistently
+        if (!id.startsWith('+')) {
+          id = ('+' + id).split(" ").join("");
+        }
+
+        console.log(`Upgrading WebSocket connection for ${clientType} with ID: ${id}`);
+    
+        const success = server.upgrade(req, { 
+          data: { 
+            type: clientType,
+            id 
+          } 
+        });
+        
+        return success
+          ? undefined
+          : new Response("WebSocket upgrade error", { status: 400 });
+      }
+    
       if (req.method === 'OPTIONS') {
         return new Response(null, {
           status: 204,
