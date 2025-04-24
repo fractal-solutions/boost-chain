@@ -3,6 +3,9 @@ import { Transaction } from "./transaction.js";
 import { createHmac, randomBytes } from "crypto";
 import { authenticateToken, requireRole, requirePermission } from './middleware.js';
 import { ROLES } from './roles.js';
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from './config.js'; 
+
 
 // Create test accounts
 const alice = generateKeyPair();
@@ -134,9 +137,53 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         const fee = 0.01 * amount;
         const totalAmount = amount + fee;
         // Always send deposits and withdrawals to controller node (3001)
-        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" ? 3001 : nodePort;
+        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" || type === "CONTRACT_PAYMENT" ? 3001 : nodePort;
         
-        if (type === "DEPOSIT") {
+        // Handle CONTRACT_PAYMENT type specifically
+        if (type === "CONTRACT_PAYMENT") {
+            const balanceRes = await fetch(
+                `http://localhost:${targetPort}/balance?address=${encodeURIComponent(from.publicKey)}`,
+                { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+            );
+            const { balance } = await balanceRes.json();
+            
+            if (balance < totalAmount) {
+                return {
+                    error: `Insufficient balance for transaction + fee. Required: ${totalAmount}, Available: ${balance}`,
+                    balance,
+                    attempted: totalAmount
+                };
+            }
+        
+            // Create both main transaction and fee transaction
+            const transaction = new Transaction(from.publicKey, to.publicKey, amount, Date.now(), "CONTRACT_PAYMENT");
+            transaction.signTransaction(from.privateKey);
+            
+            const nodePublicKey = await getNodePublicKey(targetPort);
+            const fee = new Transaction(from.publicKey, nodePublicKey, 0.01 * amount, Date.now(), "FEE");
+            fee.signTransaction(from.privateKey);
+        
+            txData = {
+                transactions: [
+                    {
+                        sender: from.publicKey,
+                        recipient: to.publicKey,
+                        amount: Number(amount),
+                        timestamp: transaction.timestamp,
+                        signature: transaction.signature,
+                        type: "CONTRACT_PAYMENT"
+                    },
+                    {
+                        sender: from.publicKey,
+                        recipient: nodePublicKey,
+                        amount: Number(fee.amount),
+                        timestamp: fee.timestamp,
+                        signature: fee.signature,
+                        type: "FEE"
+                    }
+                ]
+            };
+        } else if (type === "DEPOSIT") {
             const timestamp = Date.now();
             const nonce = randomBytes(16).toString('hex');
             
@@ -243,7 +290,10 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
                 'Content-Type': 'application/json',
                 'x-auth-token': process.env.NETWORK_SECRET
             },
-            body: JSON.stringify(txData)
+            body: JSON.stringify({
+                ...txData,
+                type: type === "CONTRACT_PAYMENT" ? "CONTRACT_PAYMENT" : txData.type
+            })
         });
 
         const result = await txResponse.json();
@@ -586,19 +636,89 @@ Bun.serve({
         },
         '/txn': { 
             POST: async (req) => {
-                // Add CORS headers to auth check
-                const auth = requirePermission('transfer')(req);
-                if (!auth.authenticated) {
-                    return Response.json({ 
-                        error: auth.error 
-                    }, { 
-                        status: auth.status,
-                        headers: corsHeaders  // Use corsHeaders instead of baseHeaders
+                const body = await req.json();
+
+                if (body.type === 'CONTRACT_PAYMENT') {
+                    // Calculate total amount including fee
+                    const fee = body.amount * 0.01; // 1% fee
+                    const totalAmount = Number(body.amount) + fee;
+                
+                    // Check balance - Fix the from address extraction
+                    const fromAddress = body.from.publicKey || body.from;
+                    const balanceRes = await fetch(
+                        `http://localhost:3001/balance?address=${encodeURIComponent(fromAddress)}`,
+                        { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+                    );
+                    const { balance } = await balanceRes.json();
+                    console.log('Contract Payment Balance Check:', {
+                        address: fromAddress.substring(0, 32) + '...',
+                        balance,
+                        required: totalAmount,
+                        fee
                     });
+                
+                    if (balance < totalAmount) {
+                        return Response.json({ 
+                            error: `Insufficient balance for transaction + fee. Required: ${totalAmount}, Available: ${balance}`,
+                            balance,
+                            attempted: totalAmount
+                        }, { 
+                            status: 400,
+                            headers: corsHeaders 
+                        });
+                    }
+      
+                    const token = req.headers.get('authorization')?.split(' ')[1];
+                    const contractId = req.headers.get('x-contract-id');
+                    if (!token) {
+                        return Response.json({ 
+                            error: 'No token provided' 
+                        }, { 
+                            status: 401,
+                            headers: corsHeaders 
+                        });
+                    }
+
+                    try {
+                        // Verify contract token
+                        const decoded = jwt.verify(token, JWT_SECRET || process.env.NETWORK_SECRET);
+        
+                        if (!decoded.permissions?.includes('execute_contract_payment')) {
+                            throw new Error('Invalid contract permissions');
+                        }
+                
+                        // Check both contract ID in token and header
+                        if (!decoded.contractId || !contractId || decoded.contractId !== contractId) {
+                            throw new Error('Contract ID mismatch');
+                        }
+
+                        // Additional contract validation
+                        if (decoded.contractId !== req.headers.get('x-contract-id')) {
+                            throw new Error('Contract ID mismatch');
+                        }
+                    } catch (error) {
+                        return Response.json({ 
+                            error: error.message 
+                        }, { 
+                            status: 401,
+                            headers: corsHeaders 
+                        });
+                    }
+                } else {
+                    // Regular transaction authentication
+                    const auth = requirePermission('transfer')(req);
+                    if (!auth.authenticated) {
+                        return Response.json({ 
+                            error: auth.error 
+                        }, { 
+                            status: auth.status,
+                            headers: corsHeaders 
+                        });
+                    }
                 }
 
+                // Continue with transaction processing
                 try {
-                    const body = await req.json();
                     const { from, to, amount, type } = body;
                     const tx = { from, to, amount, type };
                     const result = await received_transaction(tx);
@@ -606,14 +726,14 @@ Bun.serve({
                     return Response.json({ 
                         result 
                     }, { 
-                        headers: corsHeaders  // Use corsHeaders instead of baseHeaders
+                        headers: corsHeaders 
                     });
                 } catch (error) {
                     return Response.json({ 
                         error: error.message 
                     }, { 
                         status: 400,
-                        headers: corsHeaders  // Use corsHeaders instead of baseHeaders
+                        headers: corsHeaders 
                     });
                 }
             }
@@ -635,19 +755,34 @@ Bun.serve({
                     const body = await req.json();
                     const to = body["to"];
                     const amount = body["amount"];
-                    const tx = { from: null, to: to, amount: amount, type: "DEPOSIT" };
+                    
+                    console.log('Processing deposit:', {
+                        to: to.substring(0, 32) + '...',
+                        amount
+                    });
+        
+                    const tx = { 
+                        from: null, 
+                        to: to, 
+                        amount: amount, 
+                        type: "DEPOSIT" 
+                    };
                     const result = await received_transaction(tx);
+                    
                     return Response.json({ 
+                        success: true,
                         result 
                     }, { 
-                        headers: corsHeaders  // Add CORS headers
+                        headers: corsHeaders
                     });
                 } catch (error) {
+                    console.error('Deposit error:', error);
                     return Response.json({ 
+                        success: false,
                         error: error.message 
                     }, { 
                         status: 400,
-                        headers: corsHeaders  // Add CORS headers
+                        headers: corsHeaders
                     });
                 }
             }
@@ -749,6 +884,13 @@ async function received_transaction(tx) {
             fromKey = tx.from ? { publicKey: tx.from.publicKey, privateKey: tx.from.privateKey } : null;
             toKey = null;
             break;
+        case 'CONTRACT_PAYMENT':
+            fromKey = {
+                publicKey: typeof tx.from === 'object' ? tx.from.publicKey : tx.from,
+                privateKey: tx.from.privateKey || tx.privateKey
+            };
+            toKey = typeof tx.to === 'object' ? tx.to : { publicKey: tx.to };
+            break;
         case 'TRANSFER':
             fromKey = tx.from ? {
                 publicKey: tx.from.publicKey,
@@ -770,7 +912,9 @@ async function received_transaction(tx) {
     } else {
         console.log('\x1b[32m%s\x1b[0m', '@@@@Transaction successful');
         // Run sync after every successful transaction
-        await fetch('http://localhost:2224/sync').then(res => res.json());
+        await fetch('http://localhost:2224/sync')
+            .then(res => res.json())
+            .then(() => new Promise(resolve => setTimeout(resolve, 200)));
         return 'Transaction successful';
     }
 }

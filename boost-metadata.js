@@ -28,10 +28,26 @@ class ChainAnalytics {
             if (!response.ok) {
                 console.log(new Error('Failed to fetch chain'));
             }
-
+    
             const { chain } = await response.json();
             this.chain = chain;
             this.lastSync = Date.now();
+            
+            // Debug log for contract payments
+            console.log('Chain sync complete. Found transactions:');
+            for (const block of this.chain) {
+                for (const tx of block.transactions) {
+                    if (Array.isArray(tx) || tx.type === "CONTRACT_PAYMENT") {
+                        console.log('Contract Payment:', {
+                            type: Array.isArray(tx) ? 'Array' : tx.type,
+                            sender: Array.isArray(tx) ? tx[0].sender : tx.sender,
+                            recipient: Array.isArray(tx) ? tx[0].recipient : tx.recipient,
+                            amount: Array.isArray(tx) ? tx[0].amount : tx.amount
+                        });
+                    }
+                }
+            }
+            
             console.log(`Chain synced at ${new Date(this.lastSync).toISOString()}`);
         } catch (error) {
             console.error('Chain sync failed:', error);
@@ -57,29 +73,78 @@ class ChainAnalytics {
     getBalance(address) {
         const normalizedAddress = ChainAnalytics.normalizeAddress(address);
         let balance = 0;
+    
+        // Process regular transactions and contract payments
         for (const block of this.chain) {
             for (const tx of block.transactions) {
-                if (ChainAnalytics.normalizeAddress(tx.sender) === normalizedAddress) 
-                    balance -= tx.amount;
-                if (ChainAnalytics.normalizeAddress(tx.recipient) === normalizedAddress) 
-                    balance += tx.amount;
+                // Handle array of transactions (contract payment bundle)
+                if (Array.isArray(tx)) {
+                    for (const subTx of tx) {
+                        if (subTx.type === "CONTRACT_PAYMENT" || subTx.type === "FEE") {
+                            if (ChainAnalytics.normalizeAddress(subTx.sender) === normalizedAddress) {
+                                balance -= Number(subTx.amount);
+                            }
+                            if (ChainAnalytics.normalizeAddress(subTx.recipient) === normalizedAddress) {
+                                balance += Number(subTx.amount);
+                            }
+                        }
+                    }
+                } 
+                // Handle single transaction
+                else {
+                    if (ChainAnalytics.normalizeAddress(tx.sender) === normalizedAddress) {
+                        balance -= Number(tx.amount);
+                    }
+                    if (ChainAnalytics.normalizeAddress(tx.recipient) === normalizedAddress) {
+                        balance += Number(tx.amount);
+                    }
+                }
             }
         }
         return balance;
     }
 
     getTransactionHistory(address) {
+        const normalizedAddress = ChainAnalytics.normalizeAddress(address);
         const history = [];
+    
         for (const block of this.chain) {
             for (const tx of block.transactions) {
-                if (tx.sender === address || tx.recipient === address) {
-                    history.push({
-                        type: tx.sender === address ? 'SENT' : 'RECEIVED',
-                        amount: tx.amount,
-                        counterparty: tx.sender === address ? tx.recipient : tx.sender,
-                        timestamp: tx.timestamp,
-                        blockHeight: block.index
-                    });
+                // Handle array of transactions (contract payment bundle)
+                if (Array.isArray(tx)) {
+                    for (const subTx of tx) {
+                        if (subTx.type === "CONTRACT_PAYMENT" || subTx.type === "FEE") {
+                            if (ChainAnalytics.normalizeAddress(subTx.sender) === normalizedAddress || 
+                                ChainAnalytics.normalizeAddress(subTx.recipient) === normalizedAddress) {
+                                history.push({
+                                    type: ChainAnalytics.normalizeAddress(subTx.sender) === normalizedAddress ? 'SENT' : 'RECEIVED',
+                                    transactionType: subTx.type,
+                                    amount: Number(subTx.amount),
+                                    counterparty: ChainAnalytics.normalizeAddress(subTx.sender) === normalizedAddress ? 
+                                        subTx.recipient : subTx.sender,
+                                    timestamp: subTx.timestamp,
+                                    blockHeight: block.index,
+                                    contractPayment: true
+                                });
+                            }
+                        }
+                    }
+                } 
+                // Handle single transaction
+                else {
+                    if (ChainAnalytics.normalizeAddress(tx.sender) === normalizedAddress || 
+                        ChainAnalytics.normalizeAddress(tx.recipient) === normalizedAddress) {
+                        history.push({
+                            type: ChainAnalytics.normalizeAddress(tx.sender) === normalizedAddress ? 'SENT' : 'RECEIVED',
+                            transactionType: tx.type || 'TRANSFER',
+                            amount: Number(tx.amount),
+                            counterparty: ChainAnalytics.normalizeAddress(tx.sender) === normalizedAddress ? 
+                                tx.recipient : tx.sender,
+                            timestamp: tx.timestamp,
+                            blockHeight: block.index,
+                            contractPayment: tx.type === "CONTRACT_PAYMENT"
+                        });
+                    }
                 }
             }
         }
@@ -88,6 +153,62 @@ class ChainAnalytics {
 
     getLastTransactions(address, limit = 10) {
         return this.getTransactionHistory(address).slice(0, limit);
+    }
+
+    getContractPayments(address) {
+        const normalizedAddress = ChainAnalytics.normalizeAddress(address);
+        const payments = [];
+        
+        for (const block of this.chain) {
+            for (const tx of block.transactions) {
+                if (Array.isArray(tx)) {
+                    const contractTx = tx.find(t => t.type === "CONTRACT_PAYMENT");
+                    if (contractTx && 
+                        (ChainAnalytics.normalizeAddress(contractTx.sender) === normalizedAddress ||
+                         ChainAnalytics.normalizeAddress(contractTx.recipient) === normalizedAddress)) {
+                        payments.push({
+                            ...contractTx,
+                            blockHeight: block.index
+                        });
+                    }
+                } else if (tx.type === "CONTRACT_PAYMENT" &&
+                          (ChainAnalytics.normalizeAddress(tx.sender) === normalizedAddress ||
+                           ChainAnalytics.normalizeAddress(tx.recipient) === normalizedAddress)) {
+                    payments.push({
+                        ...tx,
+                        blockHeight: block.index
+                    });
+                }
+            }
+        }
+        return payments;
+    }
+
+    getContractPaymentsByContractId(contractId) {
+        const payments = [];
+        
+        for (const block of this.chain) {
+            for (const tx of block.transactions) {
+                if (Array.isArray(tx)) {
+                    const contractTx = tx.find(t => 
+                        t.type === "CONTRACT_PAYMENT" && 
+                        t.contractId === contractId
+                    );
+                    if (contractTx) {
+                        payments.push({
+                            ...contractTx,
+                            blockHeight: block.index
+                        });
+                    }
+                } else if (tx.type === "CONTRACT_PAYMENT" && tx.contractId === contractId) {
+                    payments.push({
+                        ...tx,
+                        blockHeight: block.index
+                    });
+                }
+            }
+        }
+        return payments;
     }
 
     getAddressStats(address) {
@@ -275,6 +396,74 @@ Bun.serve({
             }, { 
                 headers: corsHeaders 
             });
+        },
+
+        '/contract-payments': {
+            POST: async (req) => {
+                try {
+                    const { address, limit } = await req.json();
+                    const payments = analytics.getContractPayments(address);
+                    
+                    // Apply limit if provided
+                    const limitedPayments = limit ? payments.slice(0, limit) : payments;
+
+                    return Response.json({ 
+                        address,
+                        totalPayments: payments.length,
+                        payments: limitedPayments.map(payment => ({
+                            type: payment.type,
+                            amount: Number(payment.amount),
+                            sender: payment.sender,
+                            recipient: payment.recipient,
+                            timestamp: payment.timestamp,
+                            blockHeight: payment.blockHeight,
+                            contractId: payment.contractId,
+                            status: payment.status || 'COMPLETED'
+                        }))
+                    }, { 
+                        headers: corsHeaders 
+                    });
+                } catch (error) {
+                    return Response.json({ 
+                        error: error.message 
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders 
+                    });
+                }
+            }
+        },
+
+        '/contract-payments/:contractId': {
+            GET: async (req) => {
+                try {
+                    const contractId = req.params.contractId;
+                    const payments = analytics.getContractPaymentsByContractId(contractId);
+
+                    return Response.json({ 
+                        contractId,
+                        totalPayments: payments.length,
+                        payments: payments.map(payment => ({
+                            type: payment.type,
+                            amount: Number(payment.amount),
+                            sender: payment.sender,
+                            recipient: payment.recipient,
+                            timestamp: payment.timestamp,
+                            blockHeight: payment.blockHeight,
+                            status: payment.status || 'COMPLETED'
+                        }))
+                    }, { 
+                        headers: corsHeaders 
+                    });
+                } catch (error) {
+                    return Response.json({ 
+                        error: error.message 
+                    }, { 
+                        status: 400,
+                        headers: corsHeaders 
+                    });
+                }
+            }
         },
 
         '/*': {

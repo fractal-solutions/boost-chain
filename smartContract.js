@@ -1,12 +1,31 @@
 import { createHash } from "crypto";
+import jwt from "jsonwebtoken";
 
 export class SmartContract {
     constructor(options) {
         this.contractId = createHash('sha256')
             .update(Date.now().toString() + JSON.stringify(options))
             .digest('hex');
-        this.creator = options.creator;
-        this.participants = options.participants || [];
+        
+        // Store complete creator object
+        this.creator = {
+            publicKey: options.creator.publicKey,
+            privateKey: options.creator.privateKey,
+            type: options.creator.type
+        };
+
+        this.authInfo = {
+            publicKey: options.creator.publicKey,
+            privateKey: options.creator.privateKey,
+            // Don't store the short-lived JWT
+        };
+
+        // Store complete participant objects
+        this.participants = options.participants.map(p => ({
+            publicKey: p.publicKey || p,
+            type: p.type || 'USER'
+        }));
+
         this.amount = options.amount;
         this.interval = options.interval; // in milliseconds
         this.startDate = options.startDate || Date.now();
@@ -25,6 +44,23 @@ export class SmartContract {
         this.totalPaid = 0;
         this.remainingBalance = options.totalAmount || options.amount * 
             (options.endDate ? Math.ceil((options.endDate - options.startDate) / options.interval) : Infinity);
+
+        if (!options.creator.privateKey) {
+            throw new Error('Private key required for recurring payments');
+        }
+
+        this.serviceAuth = {
+            contractId: this.contractId,
+            type: 'SERVICE_TOKEN',
+            permissions: ['execute_contract_payment']
+        };
+
+        // Create permanent contract token
+        this.contractToken = jwt.sign(
+            this.serviceAuth,
+            process.env.NETWORK_SECRET,
+            { expiresIn: '10y' } // Long-lived token for contract
+        );
     }
 
     addPayment(payment) {

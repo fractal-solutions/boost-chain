@@ -2,7 +2,9 @@ export const ROLES = {
     ADMIN: 'ADMIN',
     VENDOR: 'VENDOR',
     USER: 'USER',
-    VALIDATOR: 'VALIDATOR'
+    SME: 'SME',
+    VALIDATOR: 'VALIDATOR',
+    SERVICE: 'SERVICE' // Add SERVICE role
 };
 
 export const PERMISSIONS = {
@@ -32,6 +34,10 @@ export const PERMISSIONS = {
         'validate_transactions',
         'view_chain',
         'view_all_transactions'
+    ],
+    SERVICE: [
+        'transfer',
+        'contract_payment'
     ]
 };
 

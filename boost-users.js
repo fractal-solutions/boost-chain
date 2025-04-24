@@ -330,6 +330,8 @@ class UserManager {
         }
         const user = this.users.get(userId);
         return {
+            id: user.id,
+            role: user.role,
             username: user.username,
             publicKey: user.publicKey
         };
@@ -342,10 +344,27 @@ class UserManager {
         }
         const user = this.users.get(userId);
         return {
+          id: user.id,
+            role: user.role,
             phoneNumber: user.phoneNumber,
             publicKey: user.publicKey
         };
     }
+
+    getUserByPublicKey(publicKey) {
+      // Find user by iterating through users and matching public key
+      for (const user of this.users.values()) {
+          if (user.publicKey === publicKey) {
+              return {
+                  id: user.id,
+                  role: user.role,
+                  phoneNumber: user.phoneNumber,
+                  username: user.username
+              };
+          }
+      }
+      throw new Error('User not found');
+  }
 }
 
 const corsHeaders = {
@@ -505,6 +524,42 @@ const server = Bun.serve({
             });
           }
         }
+      },
+
+      '/user/by-public-key': {
+          POST: async (req) => {
+              try {
+                  const body = await req.json();
+                  console.log('Received request body:', body);
+
+                  if (!body.publicKey) {
+                      throw new Error('Public key is required');
+                  }
+
+                  const user = userManager.getUserByPublicKey(body.publicKey);
+                  const response = {
+                      success: true,
+                      data: {
+                          id: user.id,
+                          role: user.role,
+                          phoneNumber: user.phoneNumber,
+                          username: user.username
+                      }
+                  };
+
+                  console.log('Sending response:', response);
+                  return Response.json(response, { headers: corsHeaders });
+              } catch (error) {
+                  console.error('User lookup error:', error);
+                  return Response.json({
+                      success: false,
+                      error: error.message
+                  }, { 
+                      status: 404,
+                      headers: corsHeaders 
+                  });
+              }
+          }
       },
 
       '/payment-request': {

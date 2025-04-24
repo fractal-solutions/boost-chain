@@ -37,6 +37,43 @@ export function authenticateToken(req) {
     }
 }
 
+export function authenticateServiceToken(req) {
+    try {
+        const authHeader = req.headers.get('Authorization');
+        const token = authHeader && authHeader.split(' ')[1];
+        
+        if (!token) {
+            return {
+                authenticated: false,
+                error: 'No service token provided',
+                status: 401
+            };
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // Verify this is a service token
+        if (!decoded || decoded.type !== 'SERVICE_TOKEN') {
+            return {
+                authenticated: false,
+                error: 'Invalid service token',
+                status: 403
+            };
+        }
+
+        return {
+            authenticated: true,
+            service: decoded
+        };
+    } catch (error) {
+        return {
+            authenticated: false,
+            error: error.message,
+            status: 403
+        };
+    }
+}
+
 export function requirePermission(permission) {
     return (req) => {
         const auth = authenticateToken(req);
