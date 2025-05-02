@@ -10,3 +10,10 @@ const generateEncryptionKey = () => {
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
 export const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || generateEncryptionKey();
+
+export const corsHeaders = {
+    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+  };
