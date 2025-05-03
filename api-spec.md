@@ -21,7 +21,9 @@ Authorization: Bearer <your-jwt-token>
 ```bash
 POST http://localhost:2225/register
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "username": "user1",
     "phoneNumber": "+1234567890",
@@ -29,7 +31,7 @@ Content-Type: application/json
     "role": "USER"  // Optional, defaults to "USER"
 }
 ```
-Response:
+**Response:**
 ```json
 {
     "success": true,
@@ -48,10 +50,19 @@ Response:
 ```bash
 POST http://localhost:2225/login
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "phoneNumber": "+1234567890",
     "password": "securepass123"
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "token": "jwt_token"
 }
 ```
 
@@ -62,12 +73,21 @@ Content-Type: application/json
 POST http://localhost:2222/txn
 Authorization: Bearer <jwt_token>
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "from": "sender_public_key",
     "to": "recipient_public_key",
     "amount": 100,
     "type": "TRANSFER"
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Transaction added"
 }
 ```
 
@@ -76,10 +96,19 @@ Content-Type: application/json
 POST http://localhost:2222/deposit
 Authorization: Bearer <jwt_token>
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "to": "recipient_public_key",
     "amount": 1000
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Deposit processed"
 }
 ```
 
@@ -88,10 +117,19 @@ Content-Type: application/json
 POST http://localhost:2222/withdraw
 Authorization: Bearer <jwt_token>
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "from": "user_public_key",
     "amount": 500
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Withdrawal processed"
 }
 ```
 
@@ -102,7 +140,9 @@ Content-Type: application/json
 POST http://localhost:2223/contract
 Authorization: Bearer <jwt_token>
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "creator": "creator_public_key",
     "participants": ["participant_public_key"],
@@ -117,11 +157,28 @@ Content-Type: application/json
     }
 }
 ```
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Contract created",
+    "contractId": "contract_id"
+}
+```
 
 #### Get Contract Details
 ```bash
 GET http://localhost:2223/contract/:contractId
 Authorization: Bearer <jwt_token>
+```
+**Response:**
+```json
+{
+    "success": true,
+    "data": {
+        // Contract details here
+    }
+}
 ```
 
 #### Get Contract Payments
@@ -129,11 +186,27 @@ Authorization: Bearer <jwt_token>
 GET http://localhost:2223/contract/:contractId/payments
 Authorization: Bearer <jwt_token>
 ```
+**Response:**
+```json
+{
+    "success": true,
+    "data": [
+        // List of payments
+    ]
+}
+```
 
 #### Get Contract Status
 ```bash
 GET http://localhost:2223/contract/:contractId/status
 Authorization: Bearer <jwt_token>
+```
+**Response:**
+```json
+{
+    "success": true,
+    "status": "ACTIVE" // or COMPLETED, TERMINATED
+}
 ```
 
 ### 4. Metadata Service (Port 2224)
@@ -142,9 +215,18 @@ Authorization: Bearer <jwt_token>
 ```bash
 POST http://localhost:2224/balance
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "address": "user_public_key"
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "balance": 1000
 }
 ```
 
@@ -152,9 +234,20 @@ Content-Type: application/json
 ```bash
 POST http://localhost:2224/history
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "address": "user_public_key"
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "history": [
+        // List of transactions
+    ]
 }
 ```
 
@@ -162,10 +255,21 @@ Content-Type: application/json
 ```bash
 POST http://localhost:2224/last-transactions
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "address": "user_public_key",
     "limit": 5
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "transactions": [
+        // List of last transactions
+    ]
 }
 ```
 
@@ -173,15 +277,35 @@ Content-Type: application/json
 ```bash
 POST http://localhost:2224/stats
 Content-Type: application/json
-
+```
+**Request Body:**
+```json
 {
     "address": "user_public_key"
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "statistics": {
+        // Address statistics
+    }
 }
 ```
 
 #### Get Active Addresses
 ```bash
 GET http://localhost:2224/active-addresses?minBalance=100&limit=10
+```
+**Response:**
+```json
+{
+    "success": true,
+    "activeAddresses": [
+        // List of active addresses
+    ]
+}
 ```
 
 ## Role-Based Access Control
@@ -240,28 +364,28 @@ Common HTTP Status Codes:
 - 500: Internal Server Error
 
 ## Rate Limiting
-- API requests are limited to 100 requests per minute per IP
-- Smart contract operations are limited to 10 per minute per user
-- Failed authentication attempts are limited to 5 per 15 minutes
+- API requests are limited to 100 requests per minute per IP.
+- Smart contract operations are limited to 10 per minute per user.
+- Failed authentication attempts are limited to 5 per 15 minutes.
 
 ## Best Practices
-1. Always store private keys securely
-2. Use HTTPS in production
-3. Implement proper error handling
-4. Include appropriate headers in all requests
-5. Handle token expiration and renewal
-6. Monitor transaction status
-7. Implement proper logging
-8. Use appropriate role permissions
+1. Always store private keys securely.
+2. Use HTTPS in production.
+3. Implement proper error handling.
+4. Include appropriate headers in all requests.
+5. Handle token expiration and renewal.
+6. Monitor transaction status.
+7. Implement proper logging.
+8. Use appropriate role permissions.
 
 ## Example Integration Flow
 
-1. Register a user
-2. Login to get JWT token
-3. Use token for authenticated requests
-4. Create transactions or smart contracts
-5. Monitor transaction/contract status
-6. Handle responses appropriately
+1. Register a user.
+2. Login to get JWT token.
+3. Use token for authenticated requests.
+4. Create transactions or smart contracts.
+5. Monitor transaction/contract status.
+6. Handle responses appropriately.
 
 ## Development Setup
 ```bash
@@ -270,4 +394,5 @@ bun run boost-chain.js    # Port 2222
 bun run boost-smartcron.js # Port 2223
 bun run boost-metadata.js  # Port 2224
 bun run boost-users.js     # Port 2225
+```
 ```

@@ -158,7 +158,6 @@ const node = new Node({
 By following these configurations and steps, you can effectively deploy Controller and Validator Nodes within your blockchain network, ensuring a secure and well-synchronized system.
 
 
-```
 
 
 ### Implementation Details
@@ -478,9 +477,8 @@ export class Node {
 - Implement clear and efficient communication protocols between nodes to ensure decentralized functionality and consensus.
 
 
-```
+
 
 
 This system provides the foundation for my platform's blockchain.
-```
-*/
+
