@@ -4,8 +4,16 @@ import { Token } from "./token.js";
 import { createHash } from "crypto";
 
 export class Blockchain {
-    constructor(genesisTransactions = []) {
-        this.chain = [this.createGenesisBlock(genesisTransactions)];
+    constructor(genesisTransactions = [], existingChain = null) {
+        // If we have an existing chain, use it
+        if (existingChain && Array.isArray(existingChain) && existingChain.length > 0) {
+            console.log(`Initializing blockchain with existing chain of ${existingChain.length} blocks`);
+            this.chain = existingChain;
+        } else {
+            // Otherwise create a new chain with genesis block
+            console.log('Creating new blockchain with genesis block');
+            this.chain = [this.createGenesisBlock(genesisTransactions)];
+        }
 
         this.pendingTransactions = [];
         this.minTransactionsPerBlock = 5; // Minimum transactions before mining (excluding reward)

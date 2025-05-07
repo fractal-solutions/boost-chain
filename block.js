@@ -1,9 +1,9 @@
 import { createHash } from "crypto";
 
 export class Block {
-    constructor(index, transactions, previousHash) {
-        this.index = typeof index === 'number' ? index : this.chain?.length || 0;  // Ensure index is a number
-        this.timestamp = Date.now();
+    constructor(index, transactions, previousHash = '', timestamp = Date.now()) {
+        this.index = index;
+        this.timestamp = timestamp;
         this.transactions = transactions;
         this.previousHash = previousHash;
         this.nonce = 0;
@@ -12,32 +12,25 @@ export class Block {
     }
 
     calculateHash() {
-        try {
-            // Cache transaction data if not already cached
-            if (!this._txHashesCache) {
-                this._txHashesCache = this.transactions.map(tx => ({
-                    sender: tx.sender,
-                    recipient: tx.recipient,
-                    amount: Number(tx.amount),
-                    timestamp: tx.timestamp//,
-                    //signature: tx.signature,
-                    //type: tx.type
-                }));
-            }
-    
-            const data = JSON.stringify({
-                index: this.index,
-                previousHash: this.previousHash,
-                timestamp: this.timestamp,
-                transactions: this._txHashesCache,
-                nonce: this.nonce
-            });
-    
-            return createHash("sha256").update(data).digest("hex");
-        } catch (error) {
-            console.error('Error calculating block hash:', error);
-            throw error;
-        }
+        // We need to ensure consistent string representation of transactions
+        const txString = this.transactions.map(tx => ({
+            sender: tx.sender,
+            recipient: tx.recipient,
+            amount: tx.amount,
+            timestamp: tx.timestamp,
+            type: tx.type || 'TRANSFER'
+            // Note: We don't include signature in hash calculation
+        }));
+
+        return createHash('sha256')
+            .update(
+                this.index +
+                this.timestamp +
+                JSON.stringify(txString) + // Use consistent transaction representation
+                this.previousHash +
+                this.nonce
+            )
+            .digest('hex');
     }
 
     calculateHashX() {

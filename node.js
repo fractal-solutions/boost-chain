@@ -1,7 +1,13 @@
 import { Blockchain } from "./chain.js";
 import { Block } from "./block.js";
 import { Transaction } from "./transaction.js";
+import { ChainStorage } from './chainStorage.js';
 import { createHash, randomBytes, generateKeyPairSync, createHmac } from 'crypto';
+
+
+const SAVE_INTERVAL = 20000;
+const CONTROLLER_PORT = 3001;
+process.env.NETWORK_SECRET = 'test-secret-123';
 
 export const NodeType = {
     CONTROLLER: 'controller',
@@ -19,20 +25,20 @@ export function generateKeyPair() {
 }
 
 export class Node {
-    constructor(options = {}) {
+    constructor({ host, port, nodeType, seedNodes, genesisBalances, existingChain }) {
         this.nodeConfig = {
             // Network configuration
-            host: options.host || 'localhost',
-            port: options.port || 3000,
-            protocol: options.protocol || 'http',
+            host: host || 'localhost',
+            port: port || 3000,
+            protocol: 'http',
             
             // Node identity
             nodeId: randomBytes(32).toString('hex'),
-            nodeType: options.nodeType || NodeType.VALIDATOR,
+            nodeType: nodeType || NodeType.VALIDATOR,
             
             // Network discovery
-            seedNodes: options.seedNodes || [],
-            discoveryInterval: options.discoveryInterval || 60000,
+            seedNodes: seedNodes || [],
+            discoveryInterval: 60000,
             
             // Rate limiting
             rateLimits: {
@@ -59,38 +65,36 @@ export class Node {
         this.rateLimit = new Map(); 
         this.nodeId = randomBytes(32).toString('hex');
 
-        this.options = options;
+        this.options = { host, port, nodeType, seedNodes, genesisBalances };
 
-        this.wallet = options.wallet || generateKeyPair();
-        this.transactionFee = options.transactionFee || 0.01;
-
+        this.wallet = genesisBalances ? Object.keys(genesisBalances)[0] : generateKeyPair();
+        this.transactionFee = 0.01;
 
         this.nodeType = this.nodeConfig.nodeType || NodeType.VALIDATOR; // Default to validator
         this.nodeId = randomBytes(32).toString('hex');
         this.permissions = this.initializePermissions();
-
         
-        this.peerDiscoveryInterval = options.peerDiscoveryInterval || 30000;
-        this.peerMaintenanceInterval = options.peerMaintenanceInterval || 60000;
+        this.peerDiscoveryInterval = 30000;
+        this.peerMaintenanceInterval = 60000;
 
         // Set rate limit based on node type
         if (this.nodeType === NodeType.CONTROLLER) {
             this.rateLimitWindow = 60000;  // 1 minute window
             this.maxRequestsPerWindow = 1000;  // Much higher limit for controller
-            this.maxPeers = options.maxPeers || 100;
-            this.minPeers = options.minPeers || 3;  //minimum peer requirement
+            this.maxPeers = 100;
+            this.minPeers = 3;  //minimum peer requirement
         } else {
             this.rateLimitWindow = 60000;  // 1 minute window
             this.maxRequestsPerWindow = 100;  // Standard limit for other nodes
-            this.maxPeers = options.maxPeers || 20;
-            this.minPeers = options.minPeers || 3;  //minimum peer requirement
+            this.maxPeers = 20;
+            this.minPeers = 3;  //minimum peer requirement
         }
 
         // Controller-Node specific properties
         this.tokenMintingEnabled = this.nodeType === NodeType.CONTROLLER;
         this.insurancePool = this.nodeType === NodeType.CONTROLLER ? new Map() : null;
         // Controller-specific security
-        this.depositSecret = options.networkSecret || process.env.NETWORK_SECRET;
+        this.depositSecret = process.env.NETWORK_SECRET;
         this.depositNonce = new Map(); // Track used nonces
         this.depositTimeWindow = 5 * 60 * 1000; // 5 minutes
         
@@ -109,91 +113,151 @@ export class Node {
             lastActivity: Date.now()
         } : null;
 
-        this.blockchain = new Blockchain(); // Don't create genesis block yet
-        this.initialized = false;
-        
-        if (options.genesisBalances) {
-            const genesisTransactions = Object.entries(options.genesisBalances)
-                .sort(([addr1], [addr2]) => addr1.localeCompare(addr2))
-                .map(([address, amount]) => {
-                    const tx = new Transaction(null, address, amount);
-                    tx.timestamp = 0; // Fixed timestamp for genesis transactions
-                    return tx;
-                });
-            
-            this.blockchain = new Blockchain(genesisTransactions);
-        } else {
-            this.blockchain = new Blockchain();
+        // Store genesis block hash if loading from existing chain
+        if (existingChain && existingChain.chain && existingChain.chain[0]) {
+            this.genesisHash = existingChain.chain[0].hash;
         }
 
-        
-        
-        
-        
+        // Initialize blockchain first
+        this.blockchain = new Blockchain();  // Create empty blockchain
+
+        if (this.nodeType === NodeType.CONTROLLER) {
+            // Controller node initialization will happen in initialize()
+        } else {
+            // Non-controller nodes start with empty chain and sync later
+            console.log(`Node ${this.port}: Initialized with empty chain, waiting for sync`);
+        }
+
+        // Set up periodic chain saving for controller node
+        if (this.nodeType === NodeType.CONTROLLER) {
+            this.chainSaveInterval = setInterval(async () => {
+                if (this.blockchain && this.blockchain.chain) {
+                    await ChainStorage.saveChain(this.blockchain);
+                }
+            }, SAVE_INTERVAL);
+        }
     }
 
-    async initialize() {
-        await this.setupServer();
-        console.log(`Node ${this.port}: Server started`); 
-        if (this.seedNodes.length > 0) {
-            // Wait for seed nodes to be ready
-            await this.initialSync();
-            await this.registerWithSeedNodes();
-        }
-
-        // Start peer discovery and sync
-         setTimeout(() => {
-            this.startPeerDiscovery();
-            setInterval(() => this.syncWithPeers(), 5000); // Sync every 5 seconds
+    async initializeControllerChain(existingChain, genesisBalances) {
+        try {
+            // Try to load chain from storage first
+            const chainData = await ChainStorage.loadChain();
             
-        }, 10000);
-            // Start periodic peer discovery
-        setInterval(() => this.discoverPeers(), 30000);  // Every 30 seconds
-        setInterval(() => this.maintainPeerConnections(), 60000);  // Every minute
-        // Start mining interval
-        setInterval(() => this.mineIfNeeded(), 10000); // Check every 10 seconds
+            if (chainData && chainData.chain && chainData.chain.length > 0) {
+                console.log(`Loading existing chain with ${chainData.chain.length} blocks...`);
+                const reconstructedChain = this.reconstructChainFromData(chainData);
+                this.blockchain = new Blockchain(undefined, reconstructedChain);
+                this.genesisHash = reconstructedChain[0].hash;
+                console.log(`📦 Initialized controller node with existing chain (${reconstructedChain.length} blocks)`);
+                return;
+            }
 
-        return this;
-       
+            // If no valid chain in storage, create new one
+            console.log('Creating new genesis block as controller node');
+            if (genesisBalances) {
+                const genesisTransactions = Object.entries(genesisBalances)
+                    .sort(([addr1], [addr2]) => addr1.localeCompare(addr2))
+                    .map(([address, amount]) => {
+                        const tx = new Transaction(null, address, amount);
+                        tx.timestamp = 0; // Consistent timestamp for genesis
+                        return tx;
+                    });
+                this.blockchain = new Blockchain(genesisTransactions);
+            } else {
+                this.blockchain = new Blockchain();
+            }
+            this.genesisHash = this.blockchain.chain[0].hash;
+            
+            // Save the new chain immediately
+            await ChainStorage.saveChain(this.blockchain);
+        } catch (error) {
+            console.error('Failed to initialize controller chain:', error);
+            throw error;
+        }
+    }
+
+    async syncGenesisFromController() {
+        console.log(`Node ${this.port}: Attempting to sync full chain from controller`);
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        while (attempts < maxAttempts) {
+            try {
+                const response = await fetch(`http://localhost:${CONTROLLER_PORT}/chain`, {
+                    headers: { 'x-auth-token': process.env.NETWORK_SECRET }
+                });
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const chainData = await response.json();
+                if (!chainData || !Array.isArray(chainData) || chainData.length === 0) {
+                    throw new Error('Invalid chain data received');
+                }
+
+                console.log(`Node ${this.port}: Received ${chainData.length} blocks from controller`);
+
+                // Reconstruct the chain
+                const reconstructedChain = chainData.map((blockData, index) => {
+                    try {
+                        const transactions = blockData.transactions.map(txData => {
+                            const tx = new Transaction(
+                                txData.sender,
+                                txData.recipient,
+                                txData.amount
+                            );
+                            tx.timestamp = txData.timestamp;
+                            tx.type = txData.type || 'TRANSFER';
+                            if (txData.signature) tx.signature = txData.signature;
+                            if (txData.nonce) tx.nonce = txData.nonce;
+                            if (txData.authorization) tx.authorization = txData.authorization;
+                            return tx;
+                        });
+
+                        const block = new Block(
+                            blockData.index,
+                            transactions,
+                            blockData.previousHash
+                        );
+                        block.hash = blockData.hash;
+                        block.timestamp = blockData.timestamp;
+                        block.nonce = blockData.nonce;
+                        return block;
+                    } catch (error) {
+                        console.error(`Error reconstructing block at index ${index}:`, error);
+                        return null;
+                    }
+                }).filter(block => block !== null);
+
+                if (reconstructedChain.length === 0) {
+                    throw new Error('Failed to reconstruct any blocks');
+                }
+
+                // Initialize blockchain with reconstructed chain
+                this.blockchain = new Blockchain(undefined, reconstructedChain);
+                this.genesisHash = reconstructedChain[0].hash;
+                console.log(`Node ${this.port}: Successfully synced chain with ${reconstructedChain.length} blocks. Genesis: ${this.genesisHash}`);
+                return;
+            } catch (error) {
+                console.error(`Node ${this.port}: Sync attempt ${attempts + 1} failed:`, error);
+                attempts++;
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+                }
+            }
+        }
+        
+        throw new Error(`Failed to sync with controller after ${maxAttempts} attempts`);
     }
 
     async initialSync() {
-        let synced = false;
-        let attempts = 0;
-        const maxAttempts = 3;
-    
-        while (!synced && attempts < maxAttempts) {
-            try {
-                for (const seedNode of this.seedNodes) {
-                    console.log(`Node ${this.port}: Attempting initial sync from ${seedNode}`);
-                    const response = await fetch(`http://${seedNode}/chain`, {
-                        headers: { 'x-auth-token': process.env.NETWORK_SECRET }
-                    });
-    
-                    if (!response.ok) continue;
-    
-                    const chainData = await response.json();
-                    if (chainData && chainData.length > 0) {
-                        const reconstructedChain = this.reconstructChain(chainData);
-                        if (this.blockchain.isValidChain(reconstructedChain)) {
-                            this.blockchain.chain = reconstructedChain;
-                            console.log(`Node ${this.port}: Initial sync successful, chain height: ${this.blockchain.chain.length}`);
-                            synced = true;
-                            break;
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error(`Node ${this.port}: Initial sync attempt ${attempts + 1} failed:`, error.message);
-            }
-            attempts++;
-            if (!synced && attempts < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-    
-        if (!synced) {
-            console.log(`Node ${this.port}: Initial sync failed, starting with genesis block`);
+        try {
+            // Sync the entire chain from controller
+            await this.syncGenesisFromController();
+            
+            // No need for additional sync since we already have the full chain
+            console.log(`Node ${this.port}: Initial sync complete. Chain height: ${this.blockchain.chain.length}`);
+        } catch (error) {
+            console.error(`Node ${this.port}: Initial sync failed:`, error);
         }
     }
 
@@ -493,49 +557,98 @@ export class Node {
             Bun.serve({
                 port: this.port,
                 fetch: async (req) => {
+                    // Handle CORS preflight requests
+                    if (req.method === 'OPTIONS') {
+                        return new Response(null, {
+                            headers: {
+                                'Access-Control-Allow-Origin': '*',
+                                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                                'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token',
+                                'Access-Control-Max-Age': '86400'
+                            }
+                        });
+                    }
+
                     try {
                         await this.checkRateLimit(req);
                         await this.authenticatePeer(req);
 
                         const url = new URL(req.url);
+                        let response;
                         
                         switch(true) {
                             case req.method === "POST" && url.pathname === "/handshake":
-                                return await this.handleHandshake(req);
+                                response = await this.handleHandshake(req);
+                                break;
                             case req.method === "POST" && url.pathname === "/transaction":
-                                return await this.handleTransaction(req);
+                                response = await this.handleTransaction(req);
+                                break;
                             case req.method === "POST" && url.pathname === "/block":
-                                return await this.handleNewBlock(req);
+                                response = await this.handleNewBlock(req);
+                                break;
                             case req.method === "POST" && url.pathname === "/new-peer":
-                                return await this.handleNewPeer(req);
+                                response = await this.handleNewPeer(req);
+                                break;
                             case req.method === "GET" && url.pathname === "/peers":
-                                return await this.handleGetPeers(req);
+                                response = await this.handleGetPeers(req);
+                                break;
                             case req.method === "GET" && url.pathname === "/health":
-                                return await this.handleHealthCheck(req);
+                                response = await this.handleHealthCheck(req);
+                                break;
                             case req.method === "GET" && url.pathname === "/chain":
-                                return await this.handleGetChain(req);
+                                response = await this.handleGetChain(req);
+                                break;
                             case req.method === "GET" && url.pathname === "/balance":
-                                return await this.handleGetBalance(req);
+                                response = await this.handleGetBalance(req);
+                                break;
                             case req.method === "POST" && url.pathname === "/mine":
-                                return await this.handleMine(req);
+                                response = await this.handleMine(req);
+                                break;
                             case req.method === "GET" && url.pathname === "/get-key":
-                                return await this.handleGetPublicKey(req);
+                                response = await this.handleGetPublicKey(req);
+                                break;
                             default:
-                                return new Response(JSON.stringify({ error: "Not Found" }), {
+                                response = new Response(JSON.stringify({ error: "Not Found" }), {
                                     status: 404,
                                     headers: { "Content-Type": "application/json" }
                                 });
                         }
+
+                        // Add CORS headers to all responses
+                        const corsHeaders = {
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                            'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token'
+                        };
+
+                        // Create new response with CORS headers
+                        return new Response(response.body, {
+                            status: response.status,
+                            headers: {
+                                ...Object.fromEntries(response.headers),
+                                ...corsHeaders
+                            }
+                        });
+
                     } catch (error) {
+                        const corsHeaders = {
+                            'Access-Control-Allow-Origin': '*',
+                            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                            'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token'
+                        };
+
                         return new Response(JSON.stringify({ error: error.message }), {
                             status: error.message.includes('Rate limit') ? 429 : 401,
-                            headers: { "Content-Type": "application/json" }
+                            headers: { 
+                                "Content-Type": "application/json",
+                                ...corsHeaders
+                            }
                         });
                     }
                 }
             });
             resolve();
-    });
+        });
     }
 
     async handleNewPeer(req) {
@@ -1111,12 +1224,11 @@ export class Node {
                 // });
                 // Skip signature validation for FEE transactions
                 if (tx.type === "FEE") {
-                    // Only validate basic properties for FEE transactions
-                    if (!tx.sender || !tx.recipient || !tx.amount) {
-                        throw new Error('Invalid FEE transaction structure');
+                    // Verify it's a proper Transaction instance
+                    if (!(tx instanceof Transaction) || !tx.sender || !tx.recipient || !tx.amount) {
+                        throw new Error('Invalid FEE transaction structure');    
                     }
-                    console.log('Skipping validation for FEE transaction');
-                    continue; // Skip further validation
+                    continue;
                 }
                 
                 // Full validation for non-FEE transactions
@@ -1159,16 +1271,35 @@ export class Node {
     // Helper method to reconstruct chain with proper objects
     reconstructChain(chainData) {
         return chainData.map(blockData => {
+            // First reconstruct all transactions
             const transactions = blockData.transactions.map(txData => {
-                const tx = new Transaction(txData.sender, txData.recipient, txData.amount, txData.timestamp, txData.type);
+                const tx = new Transaction(
+                    txData.sender,
+                    txData.recipient,
+                    txData.amount,
+                    txData.timestamp,
+                    txData.type
+                );
                 tx.signature = txData.signature;
+                if (txData.type === "FEE") {
+                    tx.skipSignatureValidation = true;
+                }
                 return tx;
             });
 
-            const block = new Block(blockData.index, transactions, blockData.previousHash);
+            // Create new block with EXACT same properties as original
+            const block = new Block(
+                blockData.index,
+                transactions,
+                blockData.previousHash
+            );
+            
+            // Important: Copy ALL block properties
             block.timestamp = blockData.timestamp;
             block.nonce = blockData.nonce;
             block.hash = blockData.hash;
+            block.index = blockData.index;  // Ensure index is preserved
+            
             return block;
         });
     }
@@ -1176,44 +1307,43 @@ export class Node {
     reconstructBlock(blockData) {
         try {
             const transactions = blockData.transactions.map(txData => {
-                // console.log('Raw transaction data:', {
-                //     type: txData.type,
-                //     signature: txData.signature?.substring(0, 10) + '...'
-                // });
-        
-                // Create base transaction WITH type
                 const tx = new Transaction(
                     txData.sender,
                     txData.recipient,
                     txData.amount,
                     txData.timestamp,
-                    txData.type  // Pass the type here!
+                    txData.type
                 );
-                
-                // Set additional properties
+                // Copy ALL transaction properties
                 tx.signature = txData.signature;
+                tx.hash = txData.hash;
+                tx.nonce = txData.nonce;
+                
+                // Special handling for FEE transactions
                 if (txData.type === "FEE") {
                     tx.skipSignatureValidation = true;
+                    tx.signature = "NETWORK_SIGNATURE"; // Preserve network signature
                 }
-        
-                // console.log('Reconstructed transaction:', {
-                //     type: tx.type,
-                //     is_fee: tx.type === "FEE",
-                //     skip_validation: tx.skipSignatureValidation,
-                //     signature: tx.signature?.substring(0, 10) + '...'
-                // });
-        
+                
+                // Handle authorization for special transaction types
+                if (txData.type === "DEPOSIT" || txData.type === "WITHDRAW") {
+                    tx.authorization = txData.authorization;
+                }
+                
                 return tx;
             });
+
             const block = new Block(
-                blockData.index || this.blockchain.chain.length,
+                blockData.index,
                 transactions,
                 blockData.previousHash
             );
             
-            block.hash = blockData.hash;
+            // Copy ALL block properties
             block.timestamp = blockData.timestamp;
             block.nonce = blockData.nonce;
+            block.hash = blockData.hash;
+            block.index = blockData.index;
             
             return block;
         } catch (error) {
@@ -1237,7 +1367,11 @@ export class Node {
                 throw new Error(`Failed to get chain from peer: ${response.status}`);
             }
             
-            return await response.json();
+            const chainData = await response.json();
+            if (!Array.isArray(chainData)) {
+                throw new Error('Invalid chain data format');
+            }
+            return chainData;  // Return the chain array directly
         } catch (error) {
             console.error(`Node ${this.port}: Failed to get chain from peer ${peerAddress}:`, error.message);
             return null;
@@ -1265,7 +1399,20 @@ export class Node {
 
     async handleGetChain(req) {
         try {
-            // Convert chain to a serializable format
+            const authToken = req.headers.get('x-auth-token');
+            if (authToken !== process.env.NETWORK_SECRET) {
+                return new Response(JSON.stringify({ 
+                    error: 'Unauthorized' 
+                }), {
+                    status: 401,
+                    headers: { "Content-Type": "application/json" }
+                });
+            }
+
+            // Log the chain length being sent
+            console.log(`Node ${this.port}: Sending chain with ${this.blockchain.chain.length} blocks`);
+
+            // Ensure we send complete block data
             const chainData = this.blockchain.chain.map(block => ({
                 index: block.index,
                 timestamp: block.timestamp,
@@ -1274,32 +1421,29 @@ export class Node {
                     recipient: tx.recipient,
                     amount: tx.amount,
                     timestamp: tx.timestamp,
-                    signature: tx.signature
+                    signature: tx.signature,
+                    type: tx.type || 'TRANSFER',
+                    nonce: tx.nonce,
+                    authorization: tx.authorization
                 })),
                 previousHash: block.previousHash,
                 hash: block.hash,
                 nonce: block.nonce
             }));
-    
+
             return new Response(JSON.stringify(chainData), {
                 headers: { "Content-Type": "application/json" }
             });
         } catch (error) {
-            console.error('Error getting chain:', error);
-            return new Response(JSON.stringify({ error: 'Error retrieving chain' }), {
+            console.error('Error handling chain request:', error);
+            return new Response(JSON.stringify({ 
+                error: error.message 
+            }), {
                 status: 500,
                 headers: { "Content-Type": "application/json" }
             });
         }
     }
-
-    // async handleGetPeers(req) {
-    //     return new Response(JSON.stringify({
-    //         peers: Array.from(this.peers.keys())
-    //     }), {
-    //         headers: { "Content-Type": "application/json" }
-    //     });
-    // }
 
     async handleHealthCheck(req) {
         try {
@@ -1568,7 +1712,7 @@ export class Node {
     
             // Get all peer chains
             for (const [peerAddress] of this.peers) {
-                if (!peerAddress || peerAddress.includes(undefined)){
+                if (!peerAddress || peerAddress.includes(undefined)) {
                     console.log(`Node ${this.host}:${this.port}: Skipping invalid peer address: ${peerAddress}`);
                     this.peers.delete(peerAddress);
                     continue;
@@ -1596,33 +1740,34 @@ export class Node {
                     }
     
                     // Reconstruct and validate the chain
-                    const reconstructedChain = this.reconstructChain(peerChainData);
+                    const reconstructedChain = peerChainData.map(blockData => this.reconstructBlock(blockData));
                     
+                    // Verify genesis block matches
+                    if (this.genesisHash && reconstructedChain[0]?.hash !== this.genesisHash) {
+                        console.log(`Node ${this.host}:${this.port}: Genesis block mismatch with peer ${peerAddress}`);
+                        continue;
+                    }
+
+                    // Validate the chain and check if it's longer
                     if (reconstructedChain.length > maxHeight && 
                         this.blockchain.isValidChain(reconstructedChain)) {
                         longestChain = reconstructedChain;
                         maxHeight = reconstructedChain.length;
                         syncedWithPeer = true;
-                        console.log(`Node ${this.host}:${this.port}: Found longer valid chain from ${peerAddress} (${maxHeight} blocks)`);
+                        console.log(`Node ${this.port}: Found longer valid chain (${maxHeight} blocks) from peer ${peerAddress}`);
                     }
                 } catch (error) {
                     console.error(`Node ${this.host}:${this.port}: Failed to sync with peer ${peerAddress}:`, error.message);
                 }
             }
     
-            // Update chain only if we found a longer valid chain
+            // Update to the longest valid chain if found
             if (syncedWithPeer && maxHeight > this.blockchain.chain.length) {
-                const oldLength = this.blockchain.chain.length;
                 this.blockchain.chain = longestChain;
-                console.log(`Node ${this.host}:${this.port}: Updated chain from height ${oldLength} to ${maxHeight}`);
-                return true;
+                console.log(`Node ${this.host}:${this.port}: Updated to longer chain. New height: ${this.blockchain.chain.length}`);
             }
-            
-            console.log(`Node ${this.host}:${this.port}: Already on longest chain (height: ${this.blockchain.chain.length})`);
-            return false;
         } catch (error) {
             console.error(`Node ${this.host}:${this.port}: Sync error:`, error.message);
-            return false;
         }
     }
 
@@ -1717,5 +1862,170 @@ export class Node {
         });
     }
 
+    validateChain(chain) {
+        try {
+            if (!Array.isArray(chain)) return false;
+            
+            // Validate genesis block consistency if we have a stored genesis hash
+            if (this.genesisHash && chain[0]?.hash !== this.genesisHash) {
+                console.error('Genesis block mismatch:', {
+                    received: chain[0]?.hash?.substring(0, 10),
+                    expected: this.genesisHash?.substring(0, 10)
+                });
+                return false;
+            }
+            
+            // Check each block
+            for (let i = 1; i < chain.length; i++) {
+                const currentBlock = chain[i];
+                const previousBlock = chain[i - 1];
+                
+                if (!this.isValidBlock(currentBlock, previousBlock)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (error) {
+            console.error('Chain validation error:', error);
+            return false;
+        }
+    }
 
+    isValidBlock(block, previousBlock) {
+        return (
+            block &&
+            block.hash &&
+            block.previousHash &&
+            Array.isArray(block.transactions) &&
+            block.previousHash === previousBlock.hash &&
+            block.index === previousBlock.index + 1
+        );
+    }
+
+    // Add cleanup method
+    cleanup() {
+        if (this.chainSaveInterval) {
+            clearInterval(this.chainSaveInterval);
+            // Save one last time
+            if (this.blockchain && this.blockchain.chain) {
+                ChainStorage.saveChain(this.blockchain);
+            }
+        }
+    }
+
+    // Helper method to initialize with genesis balances
+    initializeWithGenesisBalances(genesisBalances) {
+        if (this.nodeType !== NodeType.CONTROLLER) {
+            throw new Error('Only controller node can initialize genesis balances');
+        }
+
+        if (genesisBalances) {
+            const genesisTransactions = Object.entries(genesisBalances)
+                .sort(([addr1], [addr2]) => addr1.localeCompare(addr2))
+                .map(([address, amount]) => {
+                    const tx = new Transaction(null, address, amount);
+                    tx.timestamp = 0; // Consistent timestamp for genesis
+                    return tx;
+                });
+            this.blockchain = new Blockchain(genesisTransactions);
+        } else {
+            this.blockchain = new Blockchain();
+        }
+        this.genesisHash = this.blockchain.chain[0].hash;
+        console.log(`Controller node initialized with genesis block ${this.genesisHash.substring(0, 10)}`);
+    }
+
+    // Helper method to reconstruct chain from data
+    reconstructChainFromData(chainData) {
+        if (!chainData || !chainData.chain || !Array.isArray(chainData.chain)) {
+            console.error('Invalid chain data structure:', chainData);
+            return [];
+        }
+
+        console.log(`Reconstructing chain from data with ${chainData.chain.length} blocks`);
+        const reconstructedChain = chainData.chain.map((blockData, index) => {
+            if (!blockData) {
+                console.error(`Invalid block data at index ${index}`);
+                return null;
+            }
+
+            try {
+                const transactions = blockData.transactions.map(txData => {
+                    const tx = new Transaction(
+                        txData.sender,
+                        txData.recipient,
+                        txData.amount
+                    );
+                    tx.timestamp = txData.timestamp;
+                    tx.type = txData.type || 'TRANSFER';
+                    if (txData.signature) tx.signature = txData.signature;
+                    if (txData.nonce) tx.nonce = txData.nonce;
+                    if (txData.authorization) tx.authorization = txData.authorization;
+                    return tx;
+                });
+
+                const block = new Block(
+                    blockData.index,
+                    transactions,
+                    blockData.previousHash
+                );
+                block.hash = blockData.hash;
+                block.timestamp = blockData.timestamp;
+                block.nonce = blockData.nonce;
+                return block;
+            } catch (error) {
+                console.error(`Error reconstructing block at index ${index}:`, error);
+                return null;
+            }
+        }).filter(block => block !== null);
+
+        console.log(`Successfully reconstructed ${reconstructedChain.length} blocks`);
+        return reconstructedChain;
+    }
+
+    createFeeTransaction(amount) {
+        const tx = new Transaction(
+            "NETWORK",
+            this.publicKey,
+            amount,
+            Date.now(),
+            "FEE"
+        );
+        // No need to sign FEE transactions
+        tx.signature = "NETWORK_SIGNATURE";
+        return tx;
+    }
+
+    async initialize() {
+        try {
+            // If controller node, initialize chain first
+            if (this.nodeType === NodeType.CONTROLLER) {
+                await this.initializeControllerChain(this.options.existingChain, this.options.genesisBalances);
+            }
+
+            // Set up server
+            await this.setupServer();
+            console.log(`Node ${this.port}: Server started`);
+
+            // For non-controller nodes, sync with controller
+            if (this.nodeType !== NodeType.CONTROLLER) {
+                await this.syncGenesisFromController();
+            }
+
+            // Start peer discovery and sync
+            setTimeout(() => {
+                this.startPeerDiscovery();
+                setInterval(() => this.syncWithPeers(), 5000);
+            }, 10000);
+
+            setInterval(() => this.discoverPeers(), 30000);
+            setInterval(() => this.maintainPeerConnections(), 60000);
+            setInterval(() => this.mineIfNeeded(), 10000);
+
+            return this;
+        } catch (error) {
+            console.error(`Node ${this.port}: Initialization failed:`, error);
+            throw error;
+        }
+    }
 } 

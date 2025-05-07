@@ -5,7 +5,14 @@ import { authenticateToken, requireRole, requirePermission } from './middleware.
 import { ROLES } from './roles.js';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from './config.js'; 
+import { writeFile, readFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import path from 'path';
+import { ChainStorage } from './chainStorage.js';
 
+const DATA_DIR = './data';
+const CHAIN_FILE = path.join(DATA_DIR, 'chain.json');
+const SAVE_INTERVAL = 60000; // 1 minute in milliseconds
 
 // Create test accounts
 const alice = generateKeyPair();
@@ -396,17 +403,17 @@ function formatAddress(publicKey) {
 }
 
 async function main() {
-    // Initial balances
-    const genesisBalances = {
-        [alice.publicKey]: 1000,    // Alice starts with 1000
-        [bob.publicKey]: 500,       // Bob starts with 500
-        [charlie.publicKey]: 750,    // Charlie starts with 750
-        [dave.publicKey]: 250        // Dave starts with 250
-    };
+    // Load existing chain if available
+    const existingChainData = await ChainStorage.loadChain();
+    console.log('Loading existing chain data:', existingChainData ? 'Found' : 'Not found');
 
-    // Start nodes sequentially
-    console.log('Starting nodes...');
-    
+    // Initial balances (only used if no existing chain)
+    const genesisBalances = {
+        [alice.publicKey]: 1000,
+        [bob.publicKey]: 500,
+        [charlie.publicKey]: 750,
+        [dave.publicKey]: 250
+    };
 
     // Start controller node first
     const controllerNode = await new Node({
@@ -414,13 +421,18 @@ async function main() {
         port: 3001,
         nodeType: NodeType.CONTROLLER,
         seedNodes: [],
-        genesisBalances
+        genesisBalances,
+        existingChain: existingChainData
     }).initialize();
-    console.log('Controller node started on port 3001');
-    
+
+    // Wait for controller node to be fully initialized
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Start other nodes with the same chain data
+    const nodes = [controllerNode];
     
     // Wait for main node to be ready
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 4000));
  
     // Start SME nodes
     const smeNodes = await Promise.all([
@@ -508,7 +520,7 @@ async function main() {
     }).initialize();
 
     
-    const nodes = [controllerNode, ...smeNodes, validatorNode];
+    nodes.push(...smeNodes, validatorNode);
     
     // Wait for all nodes to connect
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -586,9 +598,13 @@ async function main() {
     }
 
     // Handle cleanup on exit
-    process.on('SIGINT', () => {
-        clearInterval(healthCheckInterval);
-        console.log('\nStopping health checks and exiting...');
+    process.on('SIGINT', async () => {
+        // Save chain one last time before exiting
+        if (controllerNode) {
+            await ChainStorage.saveChain(controllerNode.blockchain);
+            controllerNode.cleanup();
+        }
+        console.log('\nStopping nodes and saving chain state...');
         process.exit();
     });
 }

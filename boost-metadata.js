@@ -267,7 +267,7 @@ class ChainAnalytics {
 const analytics = new ChainAnalytics();
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Origin': '*', //['http://localhost:5173', '*'],
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token',
     'Access-Control-Max-Age': '86400',
@@ -287,6 +287,12 @@ Bun.serve({
         },
 
         '/balance': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
             POST: async (req) => {
                 try {
                     const { address } = await req.json();
@@ -326,6 +332,12 @@ Bun.serve({
         },
 
         '/last-transactions': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
             POST: async (req) => {
                 try {
                     const { address, limit = 10 } = await req.json();
