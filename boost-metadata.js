@@ -310,6 +310,12 @@ Bun.serve({
         },
 
         '/history': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
             POST: async (req) => {
                 try {
                     const { address } = await req.json();
@@ -360,6 +366,12 @@ Bun.serve({
         },
 
         '/stats': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
             POST: async (req) => {
                 try {
                     const { address } = await req.json();
@@ -411,6 +423,12 @@ Bun.serve({
         },
 
         '/contract-payments': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
             POST: async (req) => {
                 try {
                     const { address, limit } = await req.json();
@@ -447,6 +465,12 @@ Bun.serve({
         },
 
         '/contract-payments/:contractId': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
             GET: async (req) => {
                 try {
                     const contractId = req.params.contractId;

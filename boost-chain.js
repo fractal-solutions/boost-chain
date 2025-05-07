@@ -144,7 +144,7 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         const fee = 0.01 * amount;
         const totalAmount = amount + fee;
         // Always send deposits and withdrawals to controller node (3001)
-        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" || type === "CONTRACT_PAYMENT" ? 3001 : nodePort;
+        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" || type === "CONTRACT_PAYMENT" ? 3001 : 3001;//nodePort;
         
         // Handle CONTRACT_PAYMENT type specifically
         if (type === "CONTRACT_PAYMENT") {
@@ -236,7 +236,7 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
                 
             };
         } else {
-            // For non-DEPOSIT/WITHDRAW transactions, check if sender has enough balance for both amount and fee
+            // For non-DEPOSIT/WITHDRAW transactions i.e TRANSFER, check if sender has enough balance for both amount and fee
             if (from !== null && type !== "DEPOSIT" && type !== "WITHDRAW") {
                 const balanceRes = await fetch(
                     `http://localhost:${targetPort}/balance?address=${encodeURIComponent(from.publicKey)}`,
@@ -624,7 +624,7 @@ const baseHeaders = {
     'Content-Type': 'application/json'
   };
 console.log('Starting BOOST CHAIN Server on 2222...');
-Bun.serve({
+const server = Bun.serve({
     port: 2222,
     routes: {
         '/': (req) => {	
@@ -739,6 +739,7 @@ Bun.serve({
                       if (!publicKeyData.success) {
                         throw new Error('Failed to fetch recipient user details');
                     }
+
                     server.publish(`user-${publicKeyData.data.phoneNumber}`, JSON.stringify({
                         type: 'transaction-notification',
                         data: {
