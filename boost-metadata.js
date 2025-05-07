@@ -152,6 +152,22 @@ class ChainAnalytics {
     }
 
     getLastTransactions(address, limit = 10) {
+        if (address === 'all') {
+            // Get all transactions from all addresses
+            const allTransactions = [];
+            for (const block of this.chain) {
+                for (const tx of block.transactions) {
+                    if (Array.isArray(tx)) {
+                        allTransactions.push(...tx);
+                    } else {
+                        allTransactions.push(tx);
+                    }
+                }
+            }
+            return allTransactions
+                .sort((a, b) => b.timestamp - a.timestamp)
+                .slice(0, limit);
+        }
         return this.getTransactionHistory(address).slice(0, limit);
     }
 
@@ -414,11 +430,21 @@ Bun.serve({
 
             return Response.json({
                 totalAddresses: addresses.length,
-                lastSync: analytics.lastSync ? 
+                lastSync: analytics.lastSync ?
                     new Date(analytics.lastSync).toISOString() : null,
                 addresses
-            }, { 
-                headers: corsHeaders 
+            }, {
+                headers: corsHeaders
+            });
+        },
+
+        '/explorer': async (req) => {
+            const file = Bun.file('./explorer.html');
+            return new Response(file, {
+                headers: {
+                    ...corsHeaders,
+                    'Content-Type': 'text/html'
+                }
             });
         },
 
