@@ -5,6 +5,8 @@ import { ChainStorage } from './chainStorage.js';
 import { createHash, randomBytes, generateKeyPairSync, createHmac } from 'crypto';
 
 
+
+
 const SAVE_INTERVAL = 20000;
 const CONTROLLER_PORT = 3001;
 process.env.NETWORK_SECRET = 'test-secret-123';
@@ -677,8 +679,66 @@ export class Node {
         }
     }
 
-
     async handleGetBalance(req) {
+        try {
+            const url = new URL(req.url);
+            const address = url.searchParams.get('address');
+    
+            function normalizeAddress(address) {
+                if (!address) return '';
+                if (address.includes('-----BEGIN PUBLIC KEY-----')) {
+                    return address
+                        .replace('-----BEGIN PUBLIC KEY-----', '')
+                        .replace('-----END PUBLIC KEY-----', '')
+                        .replace(/\n/g, '')
+                        .trim();
+                }
+                return address.trim();
+            }
+    
+            const normalizedAddress = normalizeAddress(address || this.wallet.publicKey);
+    
+            let balance = 0;
+            for (const block of this.blockchain.chain) {
+                for (const tx of block.transactions) {
+                    // If tx is an array (for bundled/contract transactions)
+                    if (Array.isArray(tx)) {
+                        for (const subTx of tx) {
+                            if (normalizeAddress(subTx.sender) === normalizedAddress) {
+                                balance -= Number(subTx.amount);
+                            }
+                            if (normalizeAddress(subTx.recipient) === normalizedAddress) {
+                                balance += Number(subTx.amount);
+                            }
+                        }
+                    } else {
+                        if (normalizeAddress(tx.sender) === normalizedAddress) {
+                            balance -= Number(tx.amount);
+                        }
+                        if (normalizeAddress(tx.recipient) === normalizedAddress) {
+                            balance += Number(tx.amount);
+                        }
+                    }
+                }
+            }
+    
+            return new Response(JSON.stringify({ balance }), {
+                headers: { "Content-Type": "application/json" }
+            });
+        } catch (error) {
+            return new Response(JSON.stringify({
+                error: error.message,
+                balance: 0
+            }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+    }
+    
+
+
+    async handleGetBalanceX(req) {
         try {
             const url = new URL(req.url);
             const address = url.searchParams.get('address');
@@ -745,7 +805,12 @@ export class Node {
                 const totalAmount = data.transactions.reduce((sum, tx) => sum + tx.amount, 0);
                 
                 if (data.transactions[0].sender !== null && data.transactions[0].type !== "DEPOSIT") {
-                    const senderBalance = this.blockchain.getBalance(data.transactions[0].sender);
+                    const targetPort = 3001;
+                    const balanceRes = await fetch(
+                        `http://localhost:${targetPort}/balance?address=${encodeURIComponent(data.transactions[0].sender)}`,
+                        { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+                    );
+                    const { senderBalance } = await balanceRes.json();
                     if (senderBalance < totalAmount) {
                         throw new Error("Insufficient balance for combined transactions");
                     }

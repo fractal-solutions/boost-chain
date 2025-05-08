@@ -421,7 +421,7 @@ async function main() {
         port: 3001,
         nodeType: NodeType.CONTROLLER,
         seedNodes: [],
-        genesisBalances,
+        genesisBalances: (existingChainData ? null : genesisBalances),
         existingChain: existingChainData
     }).initialize();
 
@@ -441,7 +441,7 @@ async function main() {
             port: 3002,
             nodeType: NodeType.SME,
             seedNodes: ['localhost:3001'],
-            genesisBalances,
+            //genesisBalances,
             businessInfo: {
                     name: "SME_1",
                     industry: "Retail",
@@ -453,7 +453,7 @@ async function main() {
             port: 3003,
             nodeType: NodeType.SME,
             seedNodes: ['localhost:3001', 'localhost:3002'],
-            genesisBalances,
+            //genesisBalances,
             businessInfo: {
                     name: "SME_2",
                     industry: "Services",
@@ -465,7 +465,7 @@ async function main() {
             port: 3004,
             nodeType: NodeType.SME,
             seedNodes: ['localhost:3001','localhost:3002','localhost:3003'],
-            genesisBalances,
+            //genesisBalances,
             businessInfo: {
                     name: "SME_3",
                     industry: "Manufacturing",
@@ -477,7 +477,7 @@ async function main() {
             port: 3005,
             nodeType: NodeType.SME,
             seedNodes: ['localhost:3001','localhost:3002','localhost:3003','localhost:3004'],
-            genesisBalances,
+            //genesisBalances,
             businessInfo: {
                     name: "SME_4",
                     industry: "Technology",
@@ -489,7 +489,7 @@ async function main() {
             port: 3006,
             nodeType: NodeType.SME,
             seedNodes: ['localhost:3001','localhost:3002','localhost:3003','localhost:3004','localhost:3005'],
-            genesisBalances,
+            //genesisBalances,
             businessInfo: {
                     name: "SME_5",
                     industry: "Finance",
@@ -501,7 +501,7 @@ async function main() {
             port: 3007,
             nodeType: NodeType.SME,
             seedNodes: ['localhost:3001','localhost:3002','localhost:3003','localhost:3004','localhost:3005','localhost:3006'],
-            genesisBalances,
+            //genesisBalances,
             businessInfo: {
                     name: "SME_6",
                     industry: "Healthcare",
@@ -516,7 +516,7 @@ async function main() {
         port: 3008,
         nodeType: NodeType.VALIDATOR,
         seedNodes: ['localhost:3001'],
-        genesisBalances
+        //genesisBalances
     }).initialize();
 
     
@@ -589,7 +589,7 @@ async function main() {
             port: 3009 + count,
             nodeType: NodeType.VALIDATOR,
             seedNodes: ['localhost:3001'],
-            genesisBalances
+            //genesisBalances
         }).initialize();
         count++;
         await new Promise(resolve => setTimeout(resolve, 2000));
