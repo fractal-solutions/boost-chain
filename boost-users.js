@@ -364,7 +364,122 @@ class UserManager {
           }
       }
       throw new Error('User not found');
-  }
+    }
+
+    deleteUser(userId) {
+        const user = this.users.get(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Remove from all indexes
+        this.phoneNumberIndex.delete(user.phoneNumber);
+        this.usernameIndex.delete(user.username);
+        this.users.delete(userId);
+
+        // Save changes
+        this.saveUsers();
+
+        return { success: true, message: 'User deleted successfully' };
+    }
+
+    changePhoneNumber(userId, newPhoneNumber) {
+        const user = this.users.get(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Validate phone number format
+        if (!/^\+\d{10,15}$/.test(newPhoneNumber)) {
+            throw new Error('Invalid phone number format. Use +XXX format');
+        }
+
+        // Check if new phone number already exists
+        if (this.phoneNumberIndex.has(newPhoneNumber)) {
+            throw new Error('Phone number already registered');
+        }
+
+        // Remove old phone number from index
+        this.phoneNumberIndex.delete(user.phoneNumber);
+
+        // Update user and index
+        user.phoneNumber = newPhoneNumber;
+        this.phoneNumberIndex.set(newPhoneNumber, userId);
+
+        // Save changes
+        this.saveUsers();
+
+        return { success: true, message: 'Phone number updated successfully' };
+    }
+
+    changeRole(userId, newRole) {
+        const user = this.users.get(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Validate role
+        if (!['USER', 'ADMIN', 'VENDOR'].includes(newRole)) {
+            throw new Error('Invalid role');
+        }
+
+        // Update role
+        user.role = newRole;
+
+        // Save changes
+        this.saveUsers();
+
+        return { success: true, message: 'Role updated successfully' };
+    }
+
+    changePhoneNumber(userId, newPhoneNumber) {
+        const user = this.users.get(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Validate phone number format
+        if (!/^\+\d{10,15}$/.test(newPhoneNumber)) {
+            throw new Error('Invalid phone number format. Use +XXX format');
+        }
+
+        // Check if new phone number already exists
+        if (this.phoneNumberIndex.has(newPhoneNumber)) {
+            throw new Error('Phone number already registered');
+        }
+
+        // Remove old phone number from index
+        this.phoneNumberIndex.delete(user.phoneNumber);
+
+        // Update user and index
+        user.phoneNumber = newPhoneNumber;
+        this.phoneNumberIndex.set(newPhoneNumber, userId);
+
+        // Save changes
+        this.saveUsers();
+
+        return { success: true, message: 'Phone number updated successfully' };
+    }
+
+    changeRole(userId, newRole) {
+        const user = this.users.get(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Validate role
+        if (!['USER', 'ADMIN', 'VENDOR'].includes(newRole)) {
+            throw new Error('Invalid role');
+        }
+
+        // Update role
+        user.role = newRole;
+
+        // Save changes
+        this.saveUsers();
+
+        return { success: true, message: 'Role updated successfully' };
+    }
 }
 
 const corsHeaders = {
@@ -482,6 +597,35 @@ const server = Bun.serve({
             });
           }
         },
+      },
+
+      '/user/all': {
+        GET: async () => {
+          try {
+            const users = Array.from(userManager.users.values()).map(user => ({
+              id: user.id,
+              username: user.username,
+              phoneNumber: user.phoneNumber,
+              publicKey: user.publicKey,
+              role: user.role,
+              status: user.status,
+              createdAt: user.createdAt
+            }));
+            
+            return Response.json({
+              success: true,
+              users
+            }, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, {
+              status: 500,
+              headers: corsHeaders
+            });
+          }
+        }
       },
 
       '/user/by-username': {
@@ -610,14 +754,14 @@ const server = Bun.serve({
                 const formattedUserId = (userId.startsWith('+') ? userId : '+' + userId).split(" ").join("");
                 const formattedVendorId = (vendorId.startsWith('+') ? vendorId : '+' + vendorId).split(" ").join("");
                 
-                console.log('Payment complete:', { 
-                    userId: formattedUserId, 
-                    vendorId: formattedVendorId, 
-                    amount, 
-                    status 
+                console.log('Payment complete:', {
+                    userId: formattedUserId,
+                    vendorId: formattedVendorId,
+                    amount,
+                    status
                 });
                 
-                server.publish(`vendor-${formattedVendorId}`, 
+                server.publish(`vendor-${formattedVendorId}`,
                     JSON.stringify({
                         type: 'payment-complete',
                         data: {
@@ -631,12 +775,12 @@ const server = Bun.serve({
                 return Response.json({
                     success: true,
                     message: 'Payment complete'
-                }, { 
-                    headers: corsHeaders 
+                }, {
+                    headers: corsHeaders
                 });
             } catch (error) {
               
-              server.publish(`vendor-${formattedVendorId}`, 
+              server.publish(`vendor-${formattedVendorId}`,
                 JSON.stringify({
                     type: 'payment-error',
                     purchaseId: purchaseId,
@@ -644,11 +788,65 @@ const server = Bun.serve({
                 return Response.json({
                     success: false,
                     error: error.message
-                }, { 
+                }, {
                     status: 400,
-                    headers: corsHeaders 
+                    headers: corsHeaders
                 });
             }
+        }
+      },
+
+      '/delete-user': {
+        POST: async (req) => {
+          try {
+            const { id } = await req.json();
+            const result = userManager.deleteUser(id);
+            return Response.json(result, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, {
+              status: 400,
+              headers: corsHeaders
+            });
+          }
+        }
+      },
+
+      '/change-phone': {
+        POST: async (req) => {
+          try {
+            const { userId, newPhoneNumber } = await req.json();
+            const result = userManager.changePhoneNumber(userId, newPhoneNumber);
+            return Response.json(result, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, {
+              status: 400,
+              headers: corsHeaders
+            });
+          }
+        }
+      },
+
+      '/change-role': {
+        POST: async (req) => {
+          try {
+            const { userId, newRole } = await req.json();
+            const result = userManager.changeRole(userId, newRole);
+            return Response.json(result, { headers: corsHeaders });
+          } catch (error) {
+            return Response.json({
+              success: false,
+              error: error.message
+            }, {
+              status: 400,
+              headers: corsHeaders
+            });
+          }
         }
       },
     },
@@ -667,6 +865,25 @@ const server = Bun.serve({
     // Global fetch handler
     fetch(req, server) {
       const url = new URL(req.url);
+      
+      // Serve user admin HTML page
+      if (url.pathname === "/user-admin") {
+        try {
+          const html = readFileSync(join(process.cwd(), 'user-admin.html'), 'utf8');
+          return new Response(html, {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'text/html'
+            }
+          });
+        } catch (error) {
+          return new Response('User admin page not found', {
+            status: 404,
+            headers: corsHeaders
+          });
+        }
+      }
+      
       if (url.pathname === "/ws" && req.method === "GET") {
         const clientType = url.searchParams.get("clientType");
         let id = url.searchParams.get("id");

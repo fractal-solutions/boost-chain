@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<!-- saved from url=(0032)http://localhost:2225/user-admin -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boost Chain User Admin</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .stat-label {
+            font-weight: 500;
+        }
+        .stat-value {
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .action-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-right: 5px;
+        }
+        .action-btn:hover {
+            background-color: #2980b9;
+        }
+        .action-btn.delete {
+            background-color: #e74c3c;
+        }
+        .action-btn.delete:hover {
+            background-color: #c0392b;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #7f8c8d;
+        }
+        
+        .user-detail {
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .clickable-user {
+            color: #3498db;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        
+        .clickable-user:hover {
+            color: #2980b9;
+        }
+        
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal .user-form {
+            background: white;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .modal .close-btn {
+            margin-top: 15px;
+            padding: 8px 15px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .modal .close-btn:hover {
+            background: #2980b9;
+        }
+        
+        .user-detail p, .address-detail p {
+            margin: 8px 0;
+        }
+        
+        .user-row {
+            cursor: pointer;
+        }
+        
+        .user-row:hover {
+            background-color: #e9f5ff;
+        }
+        
+        /* Tab styles */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #7f8c8d;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab-btn:hover {
+            color: #3498db;
+        }
+        
+        .tab-btn.active {
+            color: #2c3e50;
+            border-bottom-color: #3498db;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Form styles */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .form-actions {
+            margin-top: 20px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Boost Chain User Admin</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <button class="action-btn" id="refreshUsers">Refresh Users</button>
+        <button class="action-btn" id="createUser">Create New User</button>
+        
+        <div class="dashboard">
+            <div class="card">
+                <h2>User Statistics</h2>
+                <div id="userStats">
+                <div class="stat">
+                    <span class="stat-label">Total Users:</span>
+                    <span class="stat-value">3</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Active Users:</span>
+                    <span class="stat-value">2</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Admin Users:</span>
+                    <span class="stat-value">1</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Newest User:</span>
+                    <span class="stat-value">admin</span>
+                </div>
+            </div>
+            </div>
+            
+            <div class="card">
+                <h2>Search Users</h2>
+                <div class="form-group">
+                    <input type="text" id="searchInput" placeholder="Search by username, phone or public key">
+                </div>
+                <button class="action-btn" id="searchBtn">Search</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="userList">All Users</button>
+                <button class="tab-btn" data-tab="activeUsers">Active Users</button>
+            </div>
+            <div class="tab-content active" id="userList">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Phone</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            
+                    <tr class="user-row">
+                        <td>admin</td>
+                        <td>+1234567890</td>
+                        <td>ADMIN</td>
+                        <td>ACTIVE</td>
+                        <td>
+                            <button class="action-btn edit-btn" data-user-id="user1">Edit</button>
+                            <button class="action-btn delete" data-user-id="user1">Delete</button>
+                        </td>
+                    </tr>
+                    <tr class="user-details" style="display: none;">
+                        <td colspan="5">
+                            <div class="user-detail">
+                                <p><strong>User ID:</strong> user1</p>
+                                <p><strong>Public Key:</strong> abc123</p>
+                                <p><strong>Created:</strong> 5/7/2025, 2:44:05 PM</p>
+                            </div>
+                        </td>
+                    </tr>
+                
+                    <tr class="user-row">
+                        <td>user1</td>
+                        <td>+1234567891</td>
+                        <td>USER</td>
+                        <td>ACTIVE</td>
+                        <td>
+                            <button class="action-btn" data-user-id="user2">Edit</button>
+                            <button class="action-btn delete" data-user-id="user2">Delete</button>
+                        </td>
+                    </tr>
+                    <tr class="user-details" style="display: none;">
+                        <td colspan="5">
+                            <div class="user-detail">
+                                <p><strong>User ID:</strong> user2</p>
+                                <p><strong>Public Key:</strong> def456</p>
+                                <p><strong>Created:</strong> 5/6/2025, 2:44:05 PM</p>
+                            </div>
+                        </td>
+                    </tr>
+                
+                    <tr class="user-row">
+                        <td>user2</td>
+                        <td>+1234567892</td>
+                        <td>USER</td>
+                        <td>INACTIVE</td>
+                        <td>
+                            <button class="action-btn" data-user-id="user3">Edit</button>
+                            <button class="action-btn delete" data-user-id="user3">Delete</button>
+                        </td>
+                    </tr>
+                    <tr class="user-details" style="display: none;">
+                        <td colspan="5">
+                            <div class="user-detail">
+                                <p><strong>User ID:</strong> user3</p>
+                                <p><strong>Public Key:</strong> ghi789</p>
+                                <p><strong>Created:</strong> 5/5/2025, 2:44:05 PM</p>
+                            </div>
+                        </td>
+                    </tr>
+                
+                    </tbody>
+                </table>
+            </div>
+            <div class="tab-content" id="activeUsers">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Phone</th>
+                            <th>Role</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            
+                    <tr class="user-row">
+                        <td>admin</td>
+                        <td>+1234567890</td>
+                        <td>ADMIN</td>
+                        <td>5/7/2025</td>
+                    </tr>
+                
+                    <tr class="user-row">
+                        <td>user1</td>
+                        <td>+1234567891</td>
+                        <td>USER</td>
+                        <td>5/6/2025</td>
+                    </tr>
+                
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const USER_API_BASE = 'http://localhost:2225';
+        
+        // Helper function for API calls
+        async function callApi(endpoint, method = 'GET', body = null) {
+            try {
+                const options = {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+                
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                
+                const response = await fetch(`${USER_API_BASE}${endpoint}`, options);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'API request failed');
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error(`API Error (${endpoint}):`, error);
+                throw error;
+            }
+        }
+
+        async function fetchUserByUsername(username) {
+            return callApi('/user/by-username', 'POST', { username });
+        }
+
+        async function fetchUserByPhone(phoneNumber) {
+            return callApi('/user/by-phone', 'POST', { phoneNumber });
+        }
+
+        async function fetchUserByPublicKey(publicKey) {
+            return callApi('/user/by-public-key', 'POST', { publicKey });
+        }
+
+        async function createUser(userData) {
+            return callApi('/register', 'POST', userData);
+        }
+
+        async function fetchUsers() {
+            try {
+                const response = await fetch(`${USER_API_BASE}/user/all`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch users');
+                }
+                
+                const data = await response.json();
+                return data.users || [];
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                return [];
+            }
+        }
+
+        async function deleteUser(userId) {
+            return callApi('/delete-user', 'POST', { id: userId });
+        }
+
+        async function fetchUserStats() {
+            try {
+                const allUsers = await fetchUsers();
+                const activeCount = allUsers.filter(u => u.status === 'ACTIVE').length;
+                const adminCount = allUsers.filter(u => u.role === 'ADMIN').length;
+                
+                return {
+                    totalUsers: allUsers.length,
+                    activeUsers: activeCount,
+                    adminUsers: adminCount,
+                    newestUser: allUsers.length > 0 ? 
+                        allUsers.reduce((a, b) => a.createdAt > b.createdAt ? a : b).username : 'N/A'
+                };
+            } catch (error) {
+                console.error('Error fetching user stats:', error);
+                return {
+                    totalUsers: 0,
+                    activeUsers: 0,
+                    adminUsers: 0,
+                    newestUser: 'N/A'
+                };
+            }
+        }
+
+        function updateUserStats(data) {
+            const statsEl = document.getElementById('userStats');
+            statsEl.innerHTML = `
+                <div class="stat">
+                    <span class="stat-label">Total Users:</span>
+                    <span class="stat-value">${data.totalUsers}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Active Users:</span>
+                    <span class="stat-value">${data.activeUsers}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Admin Users:</span>
+                    <span class="stat-value">${data.adminUsers}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Newest User:</span>
+                    <span class="stat-value">${data.newestUser}</span>
+                </div>
+            `;
+        }
+
+        function updateUserList(data) {
+            const userListEl = document.getElementById('userList');
+            
+            if (!data || data.length === 0) {
+                userListEl.innerHTML = '<div class="error">No users found</div>';
+                return;
+            }
+            
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Phone</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            data.forEach(user => {
+                html += `
+                    <tr class="user-row">
+                        <td>${user.username}</td>
+                        <td>${user.phoneNumber}</td>
+                        <td>${user.role}</td>
+                        <td>${user.status}</td>
+                        <td>
+                            <button class="action-btn edit-btn" data-user-id="${user.id}">Edit</button>
+                            <button class="action-btn delete" data-user-id="${user.id}">Delete</button>
+                        </td>
+                    </tr>
+                    <tr class="user-details" style="display: none;">
+                        <td colspan="5">
+                            <div class="user-detail">
+                                <p><strong>User ID:</strong> ${user.id}</p>
+                                <p><strong>Public Key:</strong> ${shortenKey(CleanAddress(user.publicKey))}</p>
+                                <p><strong>Created:</strong> ${new Date(user.createdAt).toLocaleString()}</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+            `;
+            
+            userListEl.innerHTML = html;
+            
+            // Add click handlers for expandable rows
+            document.querySelectorAll('.user-row').forEach(row => {
+                row.addEventListener('click', function() {
+                    const detailsRow = this.nextElementSibling;
+                    detailsRow.style.display = detailsRow.style.display === 'none' ? 'table-row' : 'none';
+                });
+            });
+        }
+
+        function updateActiveUsers(data) {
+            const activeUsersEl = document.getElementById('activeUsers');
+            const activeUsers = data.filter(u => u.status === 'ACTIVE');
+            
+            if (activeUsers.length === 0) {
+                activeUsersEl.innerHTML = '<div class="error">No active users found</div>';
+                return;
+            }
+            
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Phone</th>
+                            <th>Role</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            activeUsers.forEach(user => {
+                html += `
+                    <tr class="user-row">
+                        <td>${user.username}</td>
+                        <td>${user.phoneNumber}</td>
+                        <td>${user.role}</td>
+                        <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+            `;
+            
+            activeUsersEl.innerHTML = html;
+        }
+
+        function shortenKey(key) {
+            if (key.length > 30) {
+                return key.substring(0, 10) + '...' + key.substring(key.length - 10);
+            }
+            return key;
+        }
+
+        function shortenAddress(address) {
+            if (address.length > 30) {
+                return address.substring(0, 10) + '...' + address.substring(address.length - 10);
+            }
+            return address;
+        }
+
+        function CleanAddress(key) {
+            return key
+                .replace('-----BEGIN PUBLIC KEY-----\n', '')
+                .replace('\n-----END PUBLIC KEY-----', '')
+                .trim();
+        }
+
+        function showEditUserForm(userId) {
+            // First fetch the user details
+            fetch(`${USER_API_BASE}/user/all`)
+                .then(response => response.json())
+                .then(data => {
+                    const user = data.users.find(u => u.id === userId);
+                    if (!user) {
+                        throw new Error('User not found');
+                    }
+
+                    const formEl = document.createElement('div');
+                    formEl.className = 'user-form';
+                    formEl.innerHTML = `
+                        <h3>Edit User</h3>
+                        <form id="editUserForm">
+                            <div class="form-group">
+                                <label for="editPhoneNumber">Phone Number</label>
+                                <input type="tel" id="editPhoneNumber" value="${user.phoneNumber}" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editRole">Role</label>
+                                <select id="editRole">
+                                    <option value="USER" ${user.role === 'USER' ? 'selected' : ''}>User</option>
+                                    <option value="ADMIN" ${user.role === 'ADMIN' ? 'selected' : ''}>Admin</option>
+                                    <option value="VENDOR" ${user.role === 'VENDOR' ? 'selected' : ''}>Vendor</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" class="close-btn">Cancel</button>
+                                <button type="submit" class="action-btn">Save Changes</button>
+                            </div>
+                        </form>
+                    `;
+
+                    const modal = document.createElement('div');
+                    modal.className = 'modal';
+                    modal.appendChild(formEl);
+                    document.body.appendChild(modal);
+
+                    // Form submission handler
+                    document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        
+                        const newPhoneNumber = document.getElementById('editPhoneNumber').value;
+                        const newRole = document.getElementById('editRole').value;
+                        const changes = {};
+
+                        if (newPhoneNumber !== user.phoneNumber) {
+                            changes.phoneChanged = true;
+                            changes.newPhoneNumber = newPhoneNumber;
+                        }
+
+                        if (newRole !== user.role) {
+                            changes.roleChanged = true;
+                            changes.newRole = newRole;
+                        }
+
+                        try {
+                            if (changes.phoneChanged) {
+                                await fetch(`${USER_API_BASE}/change-phone`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        userId: user.id,
+                                        newPhoneNumber: changes.newPhoneNumber
+                                    })
+                                });
+                            }
+
+                            if (changes.roleChanged) {
+                                await fetch(`${USER_API_BASE}/change-role`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        userId: user.id,
+                                        newRole: changes.newRole
+                                    })
+                                });
+                            }
+
+                            // Close modal and refresh data
+                            document.body.removeChild(modal);
+                            loadData();
+                        } catch (error) {
+                            console.error('Error updating user:', error);
+                            alert(`Error: ${error.message}`);
+                        }
+                    });
+
+                    // Close modal when clicking outside or cancel button
+                    modal.addEventListener('click', (e) => {
+                        if (e.target === modal || e.target.classList.contains('close-btn')) {
+                            document.body.removeChild(modal);
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching user details:', error);
+                    alert(`Error: ${error.message}`);
+                });
+        }
+
+        function showCreateUserForm() {
+            const formEl = document.createElement('div');
+            formEl.className = 'user-form';
+            formEl.innerHTML = `
+                <h3>Create New User</h3>
+                <form id="userForm">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="phoneNumber">Phone Number</label>
+                        <input type="tel" id="phoneNumber" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="role">Role</label>
+                        <select id="role">
+                            <option value="USER">User</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="close-btn">Cancel</button>
+                        <button type="submit" class="action-btn">Create User</button>
+                    </div>
+                </form>
+            `;
+            
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.appendChild(formEl);
+            document.body.appendChild(modal);
+
+            // Form submission handler
+            document.getElementById('userForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const userData = {
+                    username: document.getElementById('username').value,
+                    phoneNumber: document.getElementById('phoneNumber').value,
+                    password: document.getElementById('password').value,
+                    role: document.getElementById('role').value,
+                    isPhoneVerified: true // For demo purposes
+                };
+                
+                try {
+                    // In a real implementation, we would call the /register endpoint
+                    const response = await fetch(`${USER_API_BASE}/register`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(userData)
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to create user');
+                    }
+                    
+                    const result = await response.json();
+                    console.log('User created:', result);
+                    
+                    // Close modal and refresh data
+                    document.body.removeChild(modal);
+                    loadData();
+                } catch (error) {
+                    console.error('Error creating user:', error);
+                    alert(`Error: ${error.message}`);
+                }
+            });
+
+            // Close modal when clicking outside or cancel button
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal || e.target.classList.contains('close-btn')) {
+                    document.body.removeChild(modal);
+                }
+            });
+        }
+
+        async function searchUsers(query) {
+            try {
+                // In a real implementation, we would call the appropriate search endpoints
+                // For now, we'll filter our sample data
+                const allUsers = await fetchUsers();
+                return allUsers.filter(user => 
+                    user.username.includes(query) || 
+                    user.phoneNumber.includes(query) || 
+                    user.publicKey.includes(query)
+                );
+            } catch (error) {
+                console.error('Error searching users:', error);
+                return [];
+            }
+        }
+
+        // Tab switching functionality
+        function setupTabs() {
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Remove active class from all buttons and contents
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabContents.forEach(c => c.classList.remove('active'));
+                    
+                    // Add active class to clicked button and corresponding content
+                    btn.classList.add('active');
+                    const tabId = btn.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+        }
+
+        async function loadData() {
+            const users = await fetchUsers();
+            const stats = await fetchUserStats();
+            
+            updateUserStats(stats);
+            updateUserList(users);
+            updateActiveUsers(users);
+        }
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            setupTabs();
+            
+            // Set up refresh button
+            document.getElementById('refreshUsers').addEventListener('click', loadData);
+            
+            // Set up create user button
+            document.getElementById('createUser').addEventListener('click', showCreateUserForm);
+            
+            // Set up search button
+            document.getElementById('searchBtn').addEventListener('click', async () => {
+                const query = document.getElementById('searchInput').value;
+                if (query.trim()) {
+                    const results = await searchUsers(query);
+                    updateUserList(results);
+                }
+            });
+
+            // Set up edit buttons
+            document.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('edit-btn')) {
+                    const userId = e.target.getAttribute('data-user-id');
+                    const userRow = e.target.closest('tr');
+                    const username = userRow.querySelector('td').textContent;
+                    const phone = userRow.querySelector('td:nth-child(2)').textContent;
+                    const role = userRow.querySelector('td:nth-child(3)').textContent;
+                    
+                    const formEl = document.createElement('div');
+                    formEl.className = 'user-form';
+                    formEl.innerHTML = `
+                        <h3>Edit User: ${username}</h3>
+                        <form id="editUserForm">
+                            <div class="form-group">
+                                <label for="editPhone">Phone Number</label>
+                                <input type="tel" id="editPhone" value="${phone}" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editRole">Role</label>
+                                <select id="editRole">
+                                    <option value="USER" ${role === 'USER' ? 'selected' : ''}>User</option>
+                                    <option value="ADMIN" ${role === 'ADMIN' ? 'selected' : ''}>Admin</option>
+                                    <option value="VENDOR" ${role === 'VENDOR' ? 'selected' : ''}>Vendor</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" class="close-btn">Cancel</button>
+                                <button type="submit" class="action-btn">Save Changes</button>
+                            </div>
+                        </form>
+                    `;
+                    
+                    const modal = document.createElement('div');
+                    modal.className = 'modal';
+                    modal.appendChild(formEl);
+                    document.body.appendChild(modal);
+    
+                    // Form submission handler
+                    document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        
+                        try {
+                            // Update phone if changed
+                            const newPhone = document.getElementById('editPhone').value;
+                            if (newPhone !== phone) {
+                                await callApi('/change-phone', 'POST', {
+                                    userId,
+                                    newPhoneNumber: newPhone
+                                });
+                            }
+    
+                            // Update role if changed
+                            const newRole = document.getElementById('editRole').value;
+                            if (newRole !== role) {
+                                await callApi('/change-role', 'POST', {
+                                    userId,
+                                    newRole
+                                });
+                            }
+    
+                            // Close modal and refresh data
+                            document.body.removeChild(modal);
+                            loadData();
+                        } catch (error) {
+                            console.error('Error updating user:', error);
+                            alert(`Error: ${error.message}`);
+                        }
+                    });
+    
+                    // Close modal when clicking outside or cancel button
+                    modal.addEventListener('click', (e) => {
+                        if (e.target === modal || e.target.classList.contains('close-btn')) {
+                            document.body.removeChild(modal);
+                        }
+                    });
+                }
+            });
+    
+            // Set up edit buttons
+            document.addEventListener('click', (e) => {
+                if (e.target.classList.contains('action-btn') && !e.target.classList.contains('delete')) {
+                    const userId = e.target.getAttribute('data-user-id');
+                    showEditUserForm(userId);
+                }
+            });
+
+            // Set up delete buttons with confirmation
+            document.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete')) {
+                    const userId = e.target.getAttribute('data-user-id');
+                    const username = e.target.closest('tr').querySelector('td').textContent;
+                    
+                    if (confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+                        try {
+                            await deleteUser(userId);
+                            loadData(); // Refresh the user list after deletion
+                        } catch (error) {
+                            console.error('Error deleting user:', error);
+                            alert(`Error: ${error.message}`);
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+
+
+</body></html>

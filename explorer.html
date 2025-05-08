@@ -157,6 +157,42 @@
         .transaction-row:hover, .address-row:hover {
             background-color: #e9f5ff;
         }
+        
+        /* Tab styles */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #7f8c8d;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab-btn:hover {
+            color: #3498db;
+        }
+        
+        .tab-btn.active {
+            color: #2c3e50;
+            border-bottom-color: #3498db;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -186,15 +222,14 @@
         </div>
 
         <div class="card">
-            <h2>Recent Transactions</h2>
-            <div id="recentTransactions">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="recentTransactions">Recent Transactions</button>
+                <button class="tab-btn" data-tab="activeAddresses">Active Addresses</button>
+            </div>
+            <div class="tab-content active" id="recentTransactions">
                 <div class="loading">Loading transactions...</div>
             </div>
-        </div>
-
-        <div class="card">
-            <h2>Active Addresses</h2>
-            <div id="activeAddresses">
+            <div class="tab-content" id="activeAddresses">
                 <div class="loading">Loading addresses...</div>
             </div>
         </div>
@@ -232,12 +267,18 @@
                                     address: addr.address,
                                     limit: 5
                                 })
+                            }).then(async response => {
+                                const data = await response.json();
+                                return {
+                                    address: addr.address,
+                                    transactions: data.transactions || []
+                                };
                             })
                         );
                         
-                        const responses = await Promise.all(addressPromises);
-                        const allData = await Promise.all(responses.map(r => r.json()));
-                        rawData = allData.flatMap(data => data.transactions || []);
+                        const allData = await Promise.all(addressPromises);
+                        rawData = allData.flatMap(({address, transactions}) =>
+                            transactions.map(tx => ({...tx, sender: address})));
                     }
                     console.log('Raw transactions response:', rawData);
                     
@@ -246,7 +287,7 @@
                         transactions: Array.isArray(rawData) ?
                             rawData.map(tx => ({
                                 sender: tx.sender,
-                                recipient: tx.recipient,
+                                recipient: tx.counterparty,
                                 amount: tx.amount,
                                 transactionType: tx.type || 'TRANSFER',
                                 timestamp: tx.timestamp,
@@ -391,8 +432,8 @@
                 try {
                     html += `
                         <tr class="transaction-row">
-                            <td class="clickable-address">${shortenAddress(cleanSender)}</td>
-                            <td class="clickable-address">${shortenAddress(cleanRecipient)}</td>
+                            <td class="clickable-address" data-full-address="${cleanSender}">${shortenAddress(cleanSender)}</td>
+                            <td class="clickable-address" data-full-address="${cleanRecipient}">${shortenAddress(cleanRecipient)}</td>
                             <td>${Number(tx.amount).toFixed(2)}</td>
                             <td>${tx.transactionType || 'TRANSFER'}</td>
                             <td>${new Date(tx.timestamp).toLocaleString()}</td>
@@ -625,10 +666,30 @@
             });
         }
 
+        // Tab switching functionality
+        function setupTabs() {
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Remove active class from all buttons and contents
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabContents.forEach(c => c.classList.remove('active'));
+                    
+                    // Add active class to clicked button and corresponding content
+                    btn.classList.add('active');
+                    const tabId = btn.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+        }
+
         // Initial load
         document.addEventListener('DOMContentLoaded', () => {
             fetchChainData();
             updateNetworkStatus();
+            setupTabs();
             
             // Set up refresh button
             document.getElementById('refreshData').addEventListener('click', fetchChainData);
@@ -636,7 +697,7 @@
             // Set up click handlers for addresses
             document.addEventListener('click', (e) => {
                 if (e.target.classList.contains('clickable-address')) {
-                    const address = e.target.textContent;
+                    const address = e.target.dataset.fullAddress;
                     showAddressHistory(address);
                 }
             });
