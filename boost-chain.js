@@ -144,7 +144,7 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         const fee = 0.01 * amount;
         const totalAmount = amount + fee;
         // Always send deposits and withdrawals to controller node (3001)
-        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" || type === "CONTRACT_PAYMENT" ? 3001 : 3001;//nodePort;
+        const targetPort = type === "DEPOSIT" || type === "WITHDRAW" || type === "CONTRACT_PAYMENT" ? 3001 : nodePort;
         
         // Handle CONTRACT_PAYMENT type specifically
         if (type === "CONTRACT_PAYMENT") {
