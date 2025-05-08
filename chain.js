@@ -3,6 +3,8 @@ import { Transaction } from "./transaction.js";
 import { Token } from "./token.js";
 import { createHash } from "crypto";
 
+process.env.NETWORK_SECRET = 'test-secret-123';
+
 export class Blockchain {
     constructor(genesisTransactions = [], existingChain = null) {
         // If we have an existing chain, use it
@@ -47,14 +49,20 @@ export class Blockchain {
     }
 
 
-    addTransaction(transaction) {
+    async addTransaction(transaction) {
         if (!transaction.isValid()) {
             throw new Error("Invalid transaction");
         }
 
         if (transaction.sender !== null) {
             // Check if sender has enough balance including the fee
-            const balance = this.getBalance(transaction.sender);
+            //const balance = this.getBalance(transaction.sender);
+            const targetPort = 3001;
+            const balanceRes = await fetch(
+                `http://localhost:${targetPort}/balance?address=${encodeURIComponent(transaction.sender)}`,
+                { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
+            );
+            const { balance } = await balanceRes.json();
             if (balance < (transaction.amount)) {
                 throw new Error("Insufficient balance (including transaction fee)");
             }

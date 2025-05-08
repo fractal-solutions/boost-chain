@@ -419,6 +419,16 @@ Bun.serve({
             });
         },
 
+        '/chain': async (req) => {
+            return Response.json({
+                chain: analytics.chain,
+                lastSync: analytics.lastSync ? new Date(analytics.lastSync).toISOString() : null
+            }, {
+                headers: corsHeaders
+            });
+        },
+
+
         '/active-addresses': (req) => {
             const url = new URL(req.url);
             const minBalance = parseFloat(url.searchParams.get('minBalance')) || 0;

@@ -236,124 +236,111 @@
     </div>
 
     <script>
+        let GLOBAL_CHAIN = [];
         async function fetchChainData() {
             try {
-                // Fetch chain overview
-                const overviewResponse = await fetch('/active-addresses?limit=20');
-                const overviewData = await overviewResponse.json();
-                
-                // Fetch recent transactions
-                let transactionsData = { transactions: [] };
-                try {
-                    // First try getting transactions from active addresses endpoint
-                    const transactionsResponse = await fetch('/active-addresses?limit=50');
-                    
-                    if (!transactionsResponse.ok) {
-                        throw new Error(`HTTP error! status: ${transactionsResponse.status}`);
-                    }
-                    
-                    const activeAddresses = await transactionsResponse.json();
-                    let rawData = [];
-                    
-                    // Get transactions for each active address
-                    if (activeAddresses.addresses && activeAddresses.addresses.length > 0) {
-                        const addressPromises = activeAddresses.addresses.map(addr =>
-                            fetch('/last-transactions', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({
-                                    address: addr.address,
-                                    limit: 5
-                                })
-                            }).then(async response => {
-                                const data = await response.json();
-                                return {
-                                    address: addr.address,
-                                    transactions: data.transactions || []
-                                };
-                            })
-                        );
-                        
-                        const allData = await Promise.all(addressPromises);
-                        rawData = allData.flatMap(({address, transactions}) =>
-                            transactions.map(tx => ({...tx, sender: address})));
-                    }
-                    console.log('Raw transactions response:', rawData);
-                    
-                    // Transform raw transactions to expected format
-                    transactionsData = {
-                        transactions: Array.isArray(rawData) ?
-                            rawData.map(tx => ({
-                                sender: tx.sender,
-                                recipient: tx.counterparty,
-                                amount: tx.amount,
-                                transactionType: tx.type || 'TRANSFER',
-                                timestamp: tx.timestamp,
-                                blockHeight: tx.blockHeight
-                            })) :
-                            (rawData.transactions || [])
-                    };
-                    
-                    console.log('Processed transactions:', transactionsData);
-                    
-                    // If no transactions, use sample data for demo
-                    if (!transactionsData.transactions || transactionsData.transactions.length === 0) {
-                        console.log('No transactions found, using sample data');
-                        console.warn('No transactions found from API, using sample data');
-                        transactionsData = {
-                            transactions: [
-                                {
-                                    sender: '0x1234567890abcdef1234567890abcdef12345678',
-                                    recipient: '0xabcdef1234567890abcdef1234567890abcdef12',
-                                    amount: 1.5,
-                                    transactionType: 'TRANSFER',
-                                    timestamp: Date.now() - 3600000,
-                                    blockHeight: 12345
-                                },
-                                {
-                                    sender: '0xabcdef1234567890abcdef1234567890abcdef12',
-                                    recipient: '0x1234567890abcdef1234567890abcdef12345678',
-                                    amount: 2.75,
-                                    transactionType: 'TRANSFER',
-                                    timestamp: Date.now() - 7200000,
-                                    blockHeight: 12344
+                // Fetch full chain from boost-metadata.js
+                const chainResponse = await fetch('/chain');
+                const chainResult = await chainResponse.json();
+                const chain = chainResult.chain || [];
+                GLOBAL_CHAIN = chain;
+                const lastSync = chainResult.lastSync;
+
+                // Compute stats from chain
+                let totalChainBalance = 0;
+                let uniqueAddresses = new Set();
+                let transactionCount = 0;
+                let totalMoneyTransacted = 0;
+                let blockHeight = chain.length ? chain.length - 1 : 0;
+
+                // For demo, we’ll collect last 25 transactions (for explorer recent txs)
+                let recentTxs = [];
+
+                // Walk chain: collect balances, addresses, transactions, amounts
+                for (const block of chain) {
+                    for (const tx of block.transactions) {
+                        // For contract bundle txs
+                        if (Array.isArray(tx)) {
+                            for (const subTx of tx) {
+                                transactionCount++;
+                                // Only add positive amounts (exclude FEE if you want)
+                                if (Number(subTx.amount) > 0 && subTx.type !== "FEE") {
+                                    totalMoneyTransacted += Number(subTx.amount);
                                 }
-                            ]
-                        };
-                    }
-                } catch (error) {
-                    console.error('Error fetching transactions:', error);
-                    // Use sample data if API fails
-                    transactionsData = {
-                        transactions: [
-                            {
-                                sender: '0x1234567890abcdef1234567890abcdef12345678',
-                                recipient: '0xabcdef1234567890abcdef1234567890abcdef12',
-                                amount: 1.5,
-                                transactionType: 'TRANSFER',
-                                timestamp: Date.now() - 3600000,
-                                blockHeight: 12345
+                                if (subTx.sender) uniqueAddresses.add(subTx.sender);
+                                if (subTx.recipient) uniqueAddresses.add(subTx.recipient);
+                                recentTxs.push({ ...subTx, blockHeight: block.index });
                             }
-                        ]
-                    };
+                        } else {
+                            transactionCount++;
+                            if (Number(tx.amount) > 0 && tx.type !== "FEE") {
+                                totalMoneyTransacted += Number(tx.amount);
+                            }
+                            if (tx.sender) uniqueAddresses.add(tx.sender);
+                            if (tx.recipient) uniqueAddresses.add(tx.recipient);
+                            recentTxs.push({ ...tx, blockHeight: block.index });
+                        }
+                    }
                 }
-                
-                // Fetch active addresses
-                const addressesResponse = await fetch('/active-addresses?limit=50&minBalance=1');
-                const addressesData = await addressesResponse.json();
-                
-                // Update UI
-                updateChainOverview(overviewData);
-                updateRecentTransactions(transactionsData);
-                updateActiveAddresses(addressesData);
+
+                // For actual balances, sum up all tx, as in boost-metadata’s getBalance
+                let balances = {};
+                for (const block of chain) {
+                    for (const tx of block.transactions) {
+                        if (Array.isArray(tx)) {
+                            for (const subTx of tx) {
+                                if (subTx.sender) {
+                                    balances[subTx.sender] = (balances[subTx.sender] || 0) - Number(subTx.amount);
+                                }
+                                if (subTx.recipient) {
+                                    balances[subTx.recipient] = (balances[subTx.recipient] || 0) + Number(subTx.amount);
+                                }
+                            }
+                        } else {
+                            if (tx.sender) balances[tx.sender] = (balances[tx.sender] || 0) - Number(tx.amount);
+                            if (tx.recipient) balances[tx.recipient] = (balances[tx.recipient] || 0) + Number(tx.amount);
+                        }
+                    }
+                }
+                totalChainBalance = Object.values(balances).reduce((sum, bal) => sum + bal, 0);
+
+                // Sort and slice for recent transactions
+                recentTxs.sort((a, b) => b.timestamp - a.timestamp); // newest first
+                recentTxs = recentTxs.slice(0, 25);
+
+                // Render UI stats
+                updateChainOverview({
+                    chainId: chain.length ? chain[0].hash?.substring(0, 10) + '...' : 'N/A',
+                    blockHeight,
+                    totalAddresses: uniqueAddresses.size,
+                    lastSync: lastSync || 'Never',
+                    totalChainBalance,
+                    totalMoneyTransacted,
+                    transactionCount
+                });
+
+                updateNetworkStatus({
+                    status: 'Operational',
+                    syncInterval: 60
+                });
+
+                updateRecentTransactions({ transactions: recentTxs });
+                updateActiveAddresses({
+                    addresses: Object.keys(balances).map(address => ({
+                        address,
+                        balance: balances[address],
+                        transactionCount: 0, // Can be updated if desired
+                        lastActivity: null
+                    }))
+                });
+
             } catch (error) {
                 console.error('Error fetching chain data:', error);
                 document.getElementById('chainOverview').innerHTML = 
                     '<div class="error">Failed to load chain data</div>';
             }
         }
+
 
         function updateChainOverview(data) {
             const overviewEl = document.getElementById('chainOverview');
@@ -371,12 +358,16 @@
                     <span class="stat-value">${data.totalAddresses}</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Active Nodes:</span>
-                    <span class="stat-value">${data.activeNodes || 1}</span>
+                    <span class="stat-label">Total Chain Balance:</span>
+                    <span class="stat-value">${data.totalChainBalance?.toFixed(2) || 0}</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Transactions (24h):</span>
-                    <span class="stat-value">${data.dailyTransactions || 0}</span>
+                    <span class="stat-label">Total Money Transacted:</span>
+                    <span class="stat-value">${data.totalMoneyTransacted?.toFixed(2) || 0}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Total Transactions:</span>
+                    <span class="stat-value">${data.transactionCount || 0}</span>
                 </div>
                 <div class="stat">
                     <span class="stat-label">Last Sync:</span>
@@ -384,7 +375,7 @@
                 </div>
                 <div class="stat">
                     <span class="stat-label">Consensus:</span>
-                    <span class="stat-value">${data.consensus || 'PoA'}</span>
+                    <span class="stat-value">${data.consensus || 'PoW'}</span>
                 </div>
             `;
         }
@@ -574,7 +565,68 @@
             }
         }
 
+        function normalizeAddress(address) {
+            if (!address) return '';
+            // Match CleanAddress() behavior exactly
+            return address
+                .replace('-----BEGIN PUBLIC KEY-----\n', '')
+                .replace('\n-----END PUBLIC KEY-----', '')
+                .trim();
+        }
+
+        function getAddressHistoryFromChain(chain, address) {
+            const normalizedAddress = normalizeAddress(address);
+            const history = [];
+
+            for (const block of chain) {
+                for (const tx of block.transactions) {
+                    if (Array.isArray(tx)) {
+                        for (const subTx of tx) {
+                            const subTxSender = normalizeAddress(subTx.sender);
+                            const subTxRecipient = normalizeAddress(subTx.recipient);
+                            if (subTxSender === normalizedAddress ||
+                                subTxRecipient === normalizedAddress) {
+                                history.push({
+                                    type: normalizeAddress(subTx.sender) === normalizedAddress ? 'SENT' : 'RECEIVED',
+                                    transactionType: subTx.type,
+                                    amount: Number(subTx.amount),
+                                    counterparty: normalizeAddress(subTx.sender) === normalizedAddress ? subTx.recipient : subTx.sender,
+                                    timestamp: subTx.timestamp,
+                                    blockHeight: block.index,
+                                    contractPayment: subTx.type === "CONTRACT_PAYMENT"
+                                });
+                            }
+                        }
+                    } else {
+                        if (normalizeAddress(tx.sender) === normalizedAddress ||
+                            normalizeAddress(tx.recipient) === normalizedAddress) {
+                            history.push({
+                                type: normalizeAddress(tx.sender) === normalizedAddress ? 'SENT' : 'RECEIVED',
+                                transactionType: tx.type || 'TRANSFER',
+                                amount: Number(tx.amount),
+                                counterparty: normalizeAddress(tx.sender) === normalizedAddress ? tx.recipient : tx.sender,
+                                timestamp: tx.timestamp,
+                                blockHeight: block.index,
+                                contractPayment: tx.type === "CONTRACT_PAYMENT"
+                            });
+                        }
+                    }
+                }
+            }
+            // Newest first - ensure timestamps are valid numbers
+            return history.sort((a, b) => {
+                const timeA = Number(a.timestamp);
+                const timeB = Number(b.timestamp);
+                return timeB - timeA;
+            });
+        }
+
+
         function showAddressHistory(address) {
+            console.log('Original address:', address);
+            const normalizedAddress = normalizeAddress(address);
+            console.log('Normalized address:', normalizedAddress);
+            
             const historyEl = document.createElement('div');
             historyEl.className = 'address-history';
             historyEl.innerHTML = '<div class="loading">Loading transaction history...</div>';
@@ -591,41 +643,18 @@
                 }
             });
 
-            // Load transaction history
-            fetchAddressHistory(address).then(transactions => {
-                if (transactions.length > 0) {
-                    historyEl.innerHTML = `
-                        <h3>Transaction History for ${shortenAddress(address)}</h3>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Tx Hash</th>
-                                    <th>Amount</th>
-                                    <th>Timestamp</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${transactions.map(tx => `
-                                    <tr>
-                                        <td>${shortenAddress(tx.hash)}</td>
-                                        <td>${tx.amount.toFixed(2)}</td>
-                                        <td>${new Date(tx.timestamp).toLocaleString()}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    `;
-                } else {
-                    historyEl.innerHTML = '<div class="error">No transaction history found</div>';
+            // Fetch from local chain data
+            setTimeout(() => {
+                if (!GLOBAL_CHAIN.length) {
+                    historyEl.innerHTML = '<div class="error">Blockchain data not loaded</div>';
+                    return;
                 }
-            });
-            
-            fetchAddressHistory(address).then(transactions => {
-                if (transactions.length === 0) {
+                console.log('Searching chain for address:', normalizedAddress);
+                const history = getAddressHistoryFromChain(GLOBAL_CHAIN, normalizedAddress);
+                if (history.length === 0) {
                     historyEl.innerHTML = '<div class="error">No transaction history found</div>';
                     return;
                 }
-                
                 let html = `
                     <h3>Transaction History for ${shortenAddress(address)}</h3>
                     <table>
@@ -634,37 +663,38 @@
                                 <th>Type</th>
                                 <th>Amount</th>
                                 <th>Counterparty</th>
+                                <th>Block</th>
                                 <th>Timestamp</th>
                             </tr>
                         </thead>
                         <tbody>
                 `;
-                
-                transactions.forEach(tx => {
-                    const counterparty = tx.type === 'SENT' ?
-                        CleanAddress(tx.recipient) : CleanAddress(tx.sender);
+                history.forEach(tx => {
+                    const counterparty = tx.type === 'SENT'
+                        ? CleanAddress(tx.counterparty)
+                        : CleanAddress(tx.counterparty);
                     html += `
                         <tr>
                             <td>${tx.type}</td>
                             <td>${Number(tx.amount).toFixed(2)}</td>
                             <td>${shortenAddress(counterparty)}</td>
+                            <td>${tx.blockHeight}</td>
                             <td>${new Date(tx.timestamp).toLocaleString()}</td>
                         </tr>
                     `;
                 });
-                
                 html += `
                         </tbody>
                     </table>
                     <button class="close-btn">Close</button>
                 `;
-                
                 historyEl.innerHTML = html;
                 historyEl.querySelector('.close-btn').addEventListener('click', () => {
                     document.body.removeChild(modal);
                 });
-            });
+            }, 0);
         }
+
 
         // Tab switching functionality
         function setupTabs() {

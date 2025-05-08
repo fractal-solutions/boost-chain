@@ -322,6 +322,14 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
         } else {
             console.log(`Transaction successful: ${amount} tokens sent from ${fromAddress}`);
         }
+
+        await fetch(`http://localhost:2224/sync`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-auth-token': process.env.NETWORK_SECRET
+            }
+        });
         return result;
     } catch (error) {
         console.error('Transaction error:', error.message);
