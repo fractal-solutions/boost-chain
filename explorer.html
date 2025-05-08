@@ -456,9 +456,12 @@
             
             // Add click handlers for expandable rows
             document.querySelectorAll('.transaction-row').forEach(row => {
-                row.addEventListener('click', function() {
-                    const detailsRow = this.nextElementSibling;
-                    detailsRow.style.display = detailsRow.style.display === 'none' ? 'table-row' : 'none';
+                row.addEventListener('click', function(e) {
+                    // Only expand if clicked on amount, type, or timestamp cells
+                    if (!e.target.classList.contains('clickable-address')) {
+                        const detailsRow = this.nextElementSibling;
+                        detailsRow.style.display = detailsRow.style.display === 'none' ? 'table-row' : 'none';
+                    }
                 });
             });
         }
@@ -535,6 +538,7 @@
         }
 
         function shortenAddress(address) {
+            if (!address) return address;
             if (address.length > 30) {
                 return address.substring(0, 10) + '...' + address.substring(address.length - 10);
             }
@@ -542,6 +546,7 @@
         }
 
         function CleanAddress(key) {
+            if (!key) return key;
             return key
                 .replace('-----BEGIN PUBLIC KEY-----\n', '')
                 .replace('\n-----END PUBLIC KEY-----', '')
@@ -623,9 +628,9 @@
 
 
         function showAddressHistory(address) {
-            console.log('Original address:', address);
+            //console.log('Original address:', address);
             const normalizedAddress = normalizeAddress(address);
-            console.log('Normalized address:', normalizedAddress);
+            //console.log('Normalized address:', normalizedAddress);
             
             const historyEl = document.createElement('div');
             historyEl.className = 'address-history';
@@ -649,7 +654,7 @@
                     historyEl.innerHTML = '<div class="error">Blockchain data not loaded</div>';
                     return;
                 }
-                console.log('Searching chain for address:', normalizedAddress);
+                //console.log('Searching chain for address:', normalizedAddress);
                 const history = getAddressHistoryFromChain(GLOBAL_CHAIN, normalizedAddress);
                 if (history.length === 0) {
                     historyEl.innerHTML = '<div class="error">No transaction history found</div>';
