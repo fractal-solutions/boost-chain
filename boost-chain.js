@@ -648,6 +648,54 @@ const server = Bun.serve({
                 return Response.json({ chain });
             }
         },
+        '/sync-chain': {
+            OPTIONS: (req) => {
+                return new Response(null, {
+                    headers: corsHeaders,
+                    status: 204
+                });
+            },
+            POST: async (req) => {
+                try {
+                    const { currentBlockCount } = await req.json();
+                    const currentChain = await displayChainState(3001, "SYNC CHAIN:");
+                    
+                    if (!currentChain || !Array.isArray(currentChain)) {
+                        throw new Error('Unable to fetch chain');
+                    }
+
+                    // Calculate blocks needed
+                    const totalBlocks = currentChain.length;
+                    const blocksNeeded = totalBlocks - currentBlockCount;
+
+                    if (blocksNeeded <= 0) {
+                        return Response.json({ 
+                            newBlocks: [],
+                            totalBlocks
+                        }, { 
+                            headers: corsHeaders 
+                        });
+                    }
+
+                    // Get only the new blocks
+                    const newBlocks = currentChain.slice(-blocksNeeded);
+
+                    return Response.json({ 
+                        newBlocks,
+                        totalBlocks
+                    }, { 
+                        headers: corsHeaders 
+                    });
+                } catch (error) {
+                    return Response.json({ 
+                        error: error.message 
+                    }, { 
+                        status: 500,
+                        headers: corsHeaders 
+                    });
+                }
+            }
+        },
         '/txn': { 
             POST: async (req) => {
                 const body = await req.json();

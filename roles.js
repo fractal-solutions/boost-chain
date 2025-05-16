@@ -4,7 +4,8 @@ export const ROLES = {
     USER: 'USER',
     SME: 'SME',
     VALIDATOR: 'VALIDATOR',
-    SERVICE: 'SERVICE' // Add SERVICE role
+    SERVICE: 'SERVICE',
+    POOL: 'POOL'
 };
 
 export const PERMISSIONS = {
@@ -38,6 +39,13 @@ export const PERMISSIONS = {
     SERVICE: [
         'transfer',
         'contract_payment'
+    ],
+    POOL: [
+        'transfer',
+        'deposit',	
+        'withdraw',
+        'view_own_transactions',
+        'view_chain'
     ]
 };
 

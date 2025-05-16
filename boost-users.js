@@ -315,7 +315,8 @@ class UserManager {
                     id: user.id,
                     username: user.username,
                     phoneNumber: user.phoneNumber,
-                    publicKey: user.publicKey
+                    publicKey: user.publicKey,
+                    role: user.role
                 }
             };
         } catch (error) {

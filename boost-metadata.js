@@ -5,21 +5,27 @@ class ChainAnalytics {
     constructor() {
         this.chain = [];
         this.lastSync = null;
-        this.syncInterval = 60000; // 1 minute
+        this.syncInterval = 60000; // 20 seconds
+        this.blockCount = 0; 
         this.startSync();
     }
 
     async startSync() {
-        // Initial sync
+        // Initial sync using full sync
         await this.syncChain();
         
-        // Regular sync interval
+        // Regular sync interval using quick sync
         setInterval(async () => {
             await this.syncChain();
         }, this.syncInterval);
     }
 
+    getBlockCount() {
+        return this.blockCount;
+    }
+
     async syncChain() {
+        await Bun.sleep(3000);
         try {
             const response = await fetch('http://localhost:2222/chain', {
                 headers: { 'x-auth-token': process.env.NETWORK_SECRET }
@@ -31,26 +37,46 @@ class ChainAnalytics {
     
             const { chain } = await response.json();
             this.chain = chain;
+            this.blockCount = chain.length;
             this.lastSync = Date.now();
-            
-            // Debug log for contract payments
-            console.log('Chain sync complete. Found transactions:');
-            for (const block of this.chain) {
-                for (const tx of block.transactions) {
-                    if (Array.isArray(tx) || tx.type === "CONTRACT_PAYMENT") {
-                        console.log('Contract Payment:', {
-                            type: Array.isArray(tx) ? 'Array' : tx.type,
-                            sender: Array.isArray(tx) ? tx[0].sender : tx.sender,
-                            recipient: Array.isArray(tx) ? tx[0].recipient : tx.recipient,
-                            amount: Array.isArray(tx) ? tx[0].amount : tx.amount
-                        });
-                    }
-                }
-            }
             
             console.log(`Chain synced at ${new Date(this.lastSync).toISOString()}`);
         } catch (error) {
             console.error('Chain sync failed:', error);
+        }
+    }
+
+    async syncChainQuick() {
+        try {
+            const response = await fetch('http://localhost:2222/sync-chain', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-auth-token': process.env.NETWORK_SECRET
+                },
+                body: JSON.stringify({
+                    currentBlockCount: this.blockCount
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch chain updates');
+            }
+
+            const { newBlocks, totalBlocks } = await response.json();
+            
+            if (newBlocks && newBlocks.length > 0) {
+                // Append new blocks to the chain
+                this.chain.push(...newBlocks);
+                this.blockCount = totalBlocks;
+                this.lastSync = Date.now();
+                
+                console.log(`Chain quick-synced at ${new Date(this.lastSync).toISOString()} (${newBlocks.length} new blocks)`);
+            } else {
+                console.log('Chain is already up to date');
+            }
+        } catch (error) {
+            console.error('Chain quick-sync failed:', error);
         }
     }
 
