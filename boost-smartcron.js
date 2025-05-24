@@ -121,6 +121,7 @@ Bun.serve({
                     const contract = contractManager.createContract(contractData);
 
                     // Create and sign transaction
+                    //Update to handle multiple participants
                     const transaction = new Transaction(
                         contractData.creator.publicKey,
                         contract.participants[0].publicKey,
