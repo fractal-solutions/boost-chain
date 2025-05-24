@@ -147,19 +147,19 @@ Bun.serve({
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${contractToken}`,
                                 'x-auth-token': process.env.NETWORK_SECRET,
-                                'x-contract-id': contract.contractId  // Add contract ID header
+                                'x-contract-id': contract.contractId 
                             },
                             body: JSON.stringify({
                                 from: {
                                     publicKey: contractData.creator.publicKey,
-                                    privateKey: contractData.creator.privateKey // Include private key
+                                    privateKey: contractData.creator.privateKey 
                                 },
                                 to: contract.participants[0].publicKey,
                                 amount: Number(contractData.amount),
                                 type: 'CONTRACT_PAYMENT',
                                 timestamp: transaction.timestamp,
                                 signature: signature,
-                                contractId: contract.contractId,  // Include contract ID in body
+                                contractId: contract.contractId,  
                                 token: contractToken,
                             })
                         });
@@ -353,7 +353,7 @@ async function generateContractToken(contract) {
         id: userData.data.id,
         role: userData.data.role,
         publicKey: userData.data.publicKey,
-        contractId: contract.contractId, // Include contract ID in token
+        contractId: contract.contractId, 
         permissions: ['execute_contract_payment']
     }, JWT_SECRET, { expiresIn });
 }
