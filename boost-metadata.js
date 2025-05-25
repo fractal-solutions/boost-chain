@@ -1,5 +1,8 @@
 import { createHash } from "crypto";
+import { chain_ip, PRODUCTION } from "./config.js";
 process.env.NETWORK_SECRET = 'test-secret-123';
+
+const boost_chain_ip = PRODUCTION ? chain_ip : 'http://localhost:2222';
 
 class ChainAnalytics {
     constructor() {
@@ -27,7 +30,7 @@ class ChainAnalytics {
     async syncChain() {
         await Bun.sleep(3000);
         try {
-            const response = await fetch('http://localhost:2222/chain', {
+            const response = await fetch(`${boost_chain_ip}/chain`, {
                 headers: { 'x-auth-token': process.env.NETWORK_SECRET }
             });
             
@@ -48,7 +51,7 @@ class ChainAnalytics {
 
     async syncChainQuick() {
         try {
-            const response = await fetch('http://localhost:2222/sync-chain', {
+            const response = await fetch(`${boost_chain_ip}/sync-chain`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

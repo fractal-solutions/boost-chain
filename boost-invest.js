@@ -2,6 +2,10 @@ import { SmartContract } from "./smartContract.js";
 import { Transaction } from "./transaction.js";
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from './config.js';
+import { writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { generateKeyPairSync } from 'crypto';
+
 
 // Investment Pool status constants
 const POOL_STATUS = {
@@ -211,11 +215,85 @@ class InvestmentPool {
 class InvestmentManager {
     constructor() {
         this.pools = new Map();
+        this.filePath = './data/pools.json';
+        this.loadPools(); 
+    }
+
+     // Save pools to file
+    savePools() {
+        try {
+            // Convert Map to array and prepare data for storage
+            const data = Array.from(this.pools.values()).map(pool => ({
+                ...pool,
+                borrowers: Array.from(pool.borrowers.entries()),
+                lenders: Array.from(pool.lenders.entries()),
+                contracts: Array.from(pool.contracts.entries())
+            }));
+            
+            // Create data directory if it doesn't exist
+            const dataDir = dirname(this.filePath);
+            if (!existsSync(dataDir)) {
+                Bun.write(dataDir, '');
+            }
+
+            // Write to file with pretty formatting
+            writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf8');
+            console.log(`Saved ${data.length} pools to ${this.filePath}`);
+        } catch (error) {
+            console.error('Error saving pools:', error);
+            throw error;
+        }
+    }
+
+    // Load pools from file
+    loadPools() {
+        try {
+            if (!existsSync(this.filePath)) {
+                console.log('No existing pools file found');
+                return;
+            }
+
+            const data = JSON.parse(readFileSync(this.filePath, 'utf8'));
+            
+            // Convert array back to Map and restore pool objects
+            data.forEach(poolData => {
+                const pool = new InvestmentPool({
+                    name: poolData.name,
+                    description: poolData.description,
+                    totalSupply: poolData.totalSupply,
+                    threshold: poolData.threshold,
+                    interestRate: poolData.interestRate,
+                    duration: poolData.duration
+                });
+
+                // Restore additional properties
+                pool.id = poolData.id;
+                pool.currentAmount = poolData.currentAmount;
+                pool.status = poolData.status;
+                pool.createdAt = poolData.createdAt;
+                pool.publicKey = poolData.publicKey;
+                pool.privateKey = poolData.privateKey;
+                pool.balance = poolData.balance;
+
+                // Restore Maps
+                pool.borrowers = new Map(poolData.borrowers);
+                pool.lenders = new Map(poolData.lenders);
+                pool.contracts = new Map(poolData.contracts);
+
+                this.pools.set(pool.id, pool);
+            });
+
+            console.log(`Loaded ${this.pools.size} pools from ${this.filePath}`);
+        } catch (error) {
+            console.error('Error loading pools:', error);
+            throw error;
+        }
     }
 
     createPool(options) {
         const pool = new InvestmentPool(options);
         this.pools.set(pool.id, pool);
+        this.savePools(); // Save after creating new pool
         return pool;
     }
 
@@ -243,6 +321,18 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
 };
+
+process.on('SIGINT', () => {
+    console.log('Saving pools before shutdown...');
+    investmentManager.savePools();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('Saving pools before shutdown...');
+    investmentManager.savePools();
+    process.exit(0);
+});
 
 // Start investment server
 console.log('Starting INVESTMENT Server on port 2227...');
@@ -316,6 +406,7 @@ Bun.serve({
 
                     const data = await req.json();
                     pool.addLender(data.publicKey, Number(data.amount));
+                    investmentManager.savePools(); 
 
                     return Response.json({
                         success: true,
@@ -356,6 +447,7 @@ Bun.serve({
                         data.privateKey,
                         token
                     );
+                    investmentManager.savePools(); 
 
                     return Response.json({
                         success: true,
@@ -389,6 +481,7 @@ Bun.serve({
                     if (pool.status === POOL_STATUS.ACTIVE) {
                         await pool.createRepaymentContracts();
                     }
+                    investmentManager.savePools(); 
 
                     return Response.json({
                         success: true,

@@ -9,6 +9,7 @@ import { writeFile, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { ChainStorage } from './chainStorage.js';
+import { metadata_ip, users_ip} from './config.js'
 
 const DATA_DIR = './data';
 const CHAIN_FILE = path.join(DATA_DIR, 'chain.json');
@@ -323,7 +324,7 @@ async function sendTransaction(from, to, amount, nodePort, type = "TRANSACTION")
             console.log(`Transaction successful: ${amount} tokens sent from ${fromAddress}`);
         }
 
-        await fetch(`http://localhost:2224/sync`, {
+        await fetch(`${metadata_ip}/sync`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -621,7 +622,7 @@ main().catch(console.error);
 
 //Boost-Chain Server
 const corsHeaders = {
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Origin': '*',//'http://localhost:5173',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token',
     'Access-Control-Max-Age': '86400',
@@ -786,7 +787,7 @@ const server = Bun.serve({
                     const result = await received_transaction(tx);
 
                     // Send Recipient a notification 
-                    const publicKeyResponse = await fetch('http://localhost:2225/user/by-public-key', {
+                    const publicKeyResponse = await fetch(`${users_ip}/user/by-public-key`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ publicKey: to })
@@ -1042,7 +1043,7 @@ async function received_transaction(tx) {
     } else {
         console.log('\x1b[32m%s\x1b[0m', '@@@@Transaction successful');
         // Run sync after every successful transaction
-        await fetch('http://localhost:2224/sync')
+        await fetch(`${metadata_ip}/sync`)
             .then(res => res.json())
             .then(() => new Promise(resolve => setTimeout(resolve, 200)));
         return 'Transaction successful';

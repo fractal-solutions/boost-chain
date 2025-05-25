@@ -1,0 +1,56 @@
+[
+  {
+    "id": "be60ab88-2d5c-4136-92bd-20026c8d3089",
+    "name": "SME Growth Fund",
+    "description": "Fund for growing SMEs",
+    "totalSupply": 100000,
+    "threshold": 50000,
+    "currentAmount": 100000,
+    "interestRate": 0.12,
+    "duration": 31536000000,
+    "borrowers": [],
+    "lenders": [
+      [
+        "investor_public_key",
+        100000
+      ]
+    ],
+    "status": "THRESHOLD_MET",
+    "contracts": [],
+    "createdAt": 1748086276631,
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxkKLN2rEa2pKtlbKS54G\nxOWtwmnCEiI4Xqh5g8SrdnhvJoKDI8OgnavdP/DWyX7oS0q5Wsbezfih7ZxDPk4r\nz1H9Qh7LL7/3Hbcy0Tbrls5UG+lu4enbI06NRWVtC+Ou6SE5Cp0Ph8tAlJetUvtj\nUydUj0xoCwz94kUqqDbuw6a8qJ9l/q8BDdNRL7Q3Y69b1mOnubwzKu3+IcHRsXNt\nXCZMQEeZUFmwRPjZvTGn/mBDBgLt/nWny4AZk+t9qBh+DcTxyO2f1uhjl5qo9+z6\nXHI2sDbIO8GBVG8RnEvW7QlrMzPBcjnwSNngepMampevqjLNx6UpBiUfhChq8Iuf\nxQIDAQAB\n-----END PUBLIC KEY-----\n",
+    "privateKey": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDGQos3asRrakq2\nVspLngbE5a3CacISIjheqHmDxKt2eG8mgoMjw6Cdq90/8NbJfuhLSrlaxt7N+KHt\nnEM+TivPUf1CHssvv/cdtzLRNuuWzlQb6W7h6dsjTo1FZW0L467pITkKnQ+Hy0CU\nl61S+2NTJ1SPTGgLDP3iRSqoNu7Dpryon2X+rwEN01EvtDdjr1vWY6e5vDMq7f4h\nwdGxc21cJkxAR5lQWbBE+Nm9Maf+YEMGAu3+dafLgBmT632oGH4NxPHI7Z/W6GOX\nmqj37PpccjawNsg7wYFUbxGcS9btCWszM8FyOfBI2eB6kxqal6+qMs3HpSkGJR+E\nKGrwi5/FAgMBAAECggEALZ7DypdshZwCf5UWfRJqk9WW51ivEb2ik3N4bJ/tZXge\neXHIK8tY0tcodM1eGyTy3lpeLtt6itImrpaJqZVSwuSmnleYIQ9u1T1hud8FlGC7\nXWXYQC8v3960Jq8JSdZVGettZPoRiAl2vYpuVV0ntItlC4lFGp/dbrrEL0teoxG7\niz1p1E/gIkO258NAIMdA+tDPbd/ZZXP24CdqPh16ikymlvvVdD+KDcucpYF1Bxb2\nW6AhZCkbAkawB9gTNbEFUCMol75NZryaulEoZa54r5JH7a6NXtw50m/WYfYCEMQV\n3S3VMY7uI0xeZb4gG1knUHkixtIgRlJvQxJStpdNkQKBgQD3ulBHd6nseB64auQE\nAhjPajxOBmfCxOLINQLGsjJmegr3NilnAOC9BgLaqeOu5KJfElyA/ODbxngW+aWm\n8VftfE/DETaJb/MvBbgS/pA2/O8GcegFWWQMBn+byM8wfHJtFRPMQDkeDgzB40Ym\nvCRROkFrC5bv2vT9mocoK8KZtQKBgQDM4VtyYDN7Be1GtlJefan0vfsZQ/sEuE14\nZEbY5HIFUitpAmMCWRkOlp38cTElwkuL2Hr/P4ayFSNWCLyxtvklJ7P0jB1QR9l4\nvwab88m7vvfb9GdVOdtgsWgqc9nhjJ5dz24R7/Gf3webQFH5zFdshD8y3zbVCIc9\nBMkca/V30QKBgEtM/fQLYsJ3bNcf3rl9La92mmgZOFcS4+B5hKODLSDLPiQQ+ZrO\nwIGUny96brQN2XFOsoGe3HbRqFVLg1fwioqsu84OoGY8ek4zzdUwPgQI9FsgKqfd\nmTSykP14l8okOeAAhSkT6IjDOouBGyTREbUDITl5p2K3Srr/ys+iJZ/1AoGAJNRa\nAPyEJJhTKAP8WJoUZDeGnOsYg6ex3XOBPNoMGSLFRPI15CUqGPJAYjHi2NvNgs0e\nhyXfS8H7ASs+6F9w+BnkApDxcA4KbOdCA+TWHdbdbX/I14w4AHDDveXng+EoUsrI\nCZdtgwSvtFvioJn4GTzIs5dmnvMShIiIsoBBtxECgYEAhO9lZzPjRQRTpkmRSrsd\nSvnazLedo2dKs1ytSGf2LVIwDPXAQQAifaooHcs2HfP7wh0Zb1gDLqfOwmpFJpKw\nLBDQNjGnrJmPDTH+oXyCSMxxShTDZjqQ2zYHt/cTbnvR1Vu7HrWPeQ91BuUc4ORc\n8DTkiTRI76d4gJukZ9VyEbY=\n-----END PRIVATE KEY-----\n",
+    "balance": 0
+  },
+  {
+    "id": "ac52635c-4c5a-4c3b-8fb0-9f2c30986a1c",
+    "name": "SME Growth Fund",
+    "description": "Fund for growing SMEs",
+    "totalSupply": 100000,
+    "threshold": 50000,
+    "currentAmount": 50000,
+    "interestRate": 0.12,
+    "duration": 31536000000,
+    "borrowers": [],
+    "lenders": [
+      [
+        "investor_public_key_2",
+        10000
+      ],
+      [
+        "investor_public_key_3",
+        30000
+      ],
+      [
+        "investor_public_key_4",
+        10000
+      ]
+    ],
+    "status": "THRESHOLD_MET",
+    "contracts": [],
+    "createdAt": 1748086523666,
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs7hrtRQEw8BlfK38Qy/j\nPFAuYX8s4dUuASlhfI6dTs+tY4QNFT4rxSYA3B1AZQXjDd0kpb5aHUklBqKzN7Ix\n83r2rC/gr1FE2P00JIC2HM4aTgybYgiHTDRAjab16hF5e5glo90EkJqZeI2pR578\nXLJIoTFQ42lXfvDmzycrl0Nrn4GFb4dVV+yoiNINng/7kooNdPCezLYs2yN5WKEo\nR+iH+Q8qsa+7ehE0k71jDvBPWQzpYo+RXsLl6MCvZ1ZKwvVowHChSeiPq50RtHbt\nrCb9eJmeMVm7tmsbqGbZPF4y9Yu16hrD/y5FZGiHxJlgOY+FUYUsaboz0U7H8AwO\nIQIDAQAB\n-----END PUBLIC KEY-----\n",
+    "privateKey": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCzuGu1FATDwGV8\nrfxDL+M8UC5hfyzh1S4BKWF8jp1Oz61jhA0VPivFJgDcHUBlBeMN3SSlvlodSSUG\norM3sjHzevasL+CvUUTY/TQkgLYczhpODJtiCIdMNECNpvXqEXl7mCWj3QSQmpl4\njalHnvxcskihMVDjaVd+8ObPJyuXQ2ufgYVvh1VX7KiI0g2eD/uSig108J7Mtizb\nI3lYoShH6If5Dyqxr7t6ETSTvWMO8E9ZDOlij5FewuXowK9nVkrC9WjAcKFJ6I+r\nnRG0du2sJv14mZ4xWbu2axuoZtk8XjL1i7XqGsP/LkVkaIfEmWA5j4VRhSxpujPR\nTsfwDA4hAgMBAAECggEAE5jpustJ6TgYwPeebUuio2QpaJWD9QTIYVVMNXc+MVa9\nVR+URyOaRYNbPuVcLR/vFkcN7NpkzHJ6TH7PnORMJN0c2qIWZbuujpxOtCfKY/n3\n/ZiLlY0xRragbuncwTdCWF87BIMwcR3AnDgTVFVidq+0sooUhFXLdhLKEl72toXT\nIr+W/I1kb9vnuhS6gHfmrZQ3ji+6CKk0r9KiD4sLIdq20nHRjnWlZVzaGPJ4fBL2\noB6arYWQ9VYNDnK9fShrODNrZz2b49fyI7EwlLSpLpPX0jzLg7nd7mLdpvU8c18W\nLaB9ckHqDPaD5CBw5l9Z/bPA73HRvWMGGOv6zx9yyQKBgQDufSmDtuqppl3Kskwl\nk02dDEzRrUKxOdANIh60SurvI2JdC20zrV10IVlcKVjejjUmy50KqQuDKOr4toIH\nxvXHilLxjXpwrUQSjxi1DE0n4MqQI8Z4zFDgMFMIT2unIBzQVswROX8yeL5uq0nJ\nPZjSGvSzMEszfKrKHyH3n0LnqQKBgQDA6piamxpqn0ozcw4QcU3iFAX7TsTS9RV6\nQhu4/RGPORUqClpJ74hfBA+gAKkXzYOBdep2HUkqDWG8CgBKUmP7l+9eNjLdIlHN\naCBRd1VHR3ifdjvi1yfLHxyujePv1vJfbcKORQd45tP3rLNCIKF6gmWnz9+ryL2G\nBkPpL6CduQKBgEkx3NXyA9+BkfOt+TTnGsECj2ki9f8SsUn2mNnYzHYMtBm+cguU\nP8Run9BrWD0mBCYeA9rLux7MJiGjUhE0/SX6zC4ar+N5KhVQGdMnLV753PGUKUvV\n2VSVQEaiqXWno3BF02fN77371OZ+Z6z93LNPVp7QSaRJtNlH6NLo7E3RAoGBAKQb\nbLGoW7JzyqU1rLMkD4LQUb5UZW6nehvEfNzCuttBTdWzdNcMYs+hHsGXjkBnXQUW\nD9tmUkTpmUhioZiXueHef4t/Q4mFllzLxSJIB01ZaS0NYSg4qutJjhaXMV1nVksD\njcuEwTSB97LrQJpyM6uJnXxBgx4Y59BJKCAHmfRRAoGBAIZbTEql7vbb2HT2U7U5\n2y+6LegP3Mho7ZwuEyoA9p/JiJ0HlXswvDO+75Aq+QaGjCcD7hGRqmUj8YJKOPnN\nQD3oBOdrvrYZLQE1bAJiV16F6j8hQ5/YOpmsolyulvFTKjxVl++Ty7uYiKwVyoWN\n75u+tfl6B0DES4uG6bCny5NU\n-----END PRIVATE KEY-----\n",
+    "balance": 0
+  }
+]
