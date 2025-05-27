@@ -3,6 +3,7 @@ import { Block } from "./block.js";
 import { Transaction } from "./transaction.js";
 import { ChainStorage } from './chainStorage.js';
 import { createHash, randomBytes, generateKeyPairSync, createHmac } from 'crypto';
+import { hostname } from "os";
 
 
 
@@ -30,7 +31,7 @@ export class Node {
     constructor({ host, port, nodeType, seedNodes, genesisBalances, existingChain }) {
         this.nodeConfig = {
             // Network configuration
-            host: host || 'localhost',
+            host: host || '0.0.0.0',
             port: port || 3000,
             protocol: 'http',
             
@@ -557,6 +558,7 @@ export class Node {
     async setupServer() {
         return new Promise((resolve) => {
             Bun.serve({
+                hostname: '0.0.0.0',
                 port: this.port,
                 fetch: async (req) => {
                     // Handle CORS preflight requests

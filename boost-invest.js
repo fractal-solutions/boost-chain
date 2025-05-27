@@ -1,10 +1,11 @@
 import { SmartContract } from "./smartContract.js";
 import { Transaction } from "./transaction.js";
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET } from './config.js';
+import { JWT_SECRET, smartcron_ip } from './config.js';
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { generateKeyPairSync } from 'crypto';
+import { hostname } from "node:os";
 
 
 // Investment Pool status constants
@@ -111,7 +112,7 @@ class InvestmentPool {
                 const monthlyInterest = (borrowerData.amount * this.interestRate) / 12;
 
                 // Create borrower->pool contract
-                const borrowerContract = await fetch('http://localhost:2223/contract', {
+                const borrowerContract = await fetch(`${smartcron_ip}/contract`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -150,7 +151,7 @@ class InvestmentPool {
                 const monthlyInterestShare = this.getTotalMonthlyInterest() * proportion;
 
                 // Create pool->lender contract
-                const lenderContract = await fetch('http://localhost:2223/contract', {
+                const lenderContract = await fetch(`${smartcron_ip}/contract`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -316,7 +317,7 @@ const investmentManager = new InvestmentManager();
 
 // CORS headers
 const corsHeaders = {
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
@@ -337,6 +338,7 @@ process.on('SIGTERM', () => {
 // Start investment server
 console.log('Starting INVESTMENT Server on port 2227...');
 Bun.serve({
+    hostname: '0.0.0.0',
     port: 2227,
     routes: {
         // Create new investment pool

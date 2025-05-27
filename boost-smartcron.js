@@ -5,15 +5,17 @@ import { Transaction } from "./transaction.js";
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET, ENCRYPTION_KEY } from './config.js';
 process.env.NETWORK_SECRET = 'test-secret-123';
+import { smartcron_ip, chain_ip, users_ip } from "./config.js";
 
 
 
-// Define CORS headers
+// Update CORS headers definition
 const corsHeaders = {
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token',
-    'Access-Control-Max-Age': '86400',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-auth-token, x-contract-id',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Max-Age': '86400'
 };
 
 // Initialize contract manager
@@ -25,6 +27,16 @@ Bun.serve({
     port: 2223,
     routes: {
         '/contract': {
+            OPTIONS: async (req) => {
+                // Handle preflight request
+                return new Response(null, {
+                    status: 204,
+                    headers: {
+                        ...corsHeaders,
+                        'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                    }
+                });
+            },
             POST: async (req) => {
                 try {
                     const userToken = req.headers.get('authorization');
@@ -55,7 +67,7 @@ Bun.serve({
                     
                     // Check current balance
                     const balanceRes = await fetch(
-                        `http://localhost:3001/balance?address=${encodeURIComponent(data.creator.publicKey)}`,
+                        `http://127.0.0.1:3001/balance?address=${encodeURIComponent(data.creator.publicKey)}`,
                         { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
                     );
                     const { balance } = await balanceRes.json();
@@ -64,7 +76,7 @@ Bun.serve({
                     // If insufficient balance, attempt deposit
                     if (balance < requiredAmount) {
                         console.log('Attempting deposit of:', requiredAmount);
-                        const depositResult = await fetch('http://localhost:2222/deposit', {
+                        const depositResult = await fetch(`${chain_ip}/deposit`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -86,7 +98,7 @@ Bun.serve({
                         // Verify the deposit was successful
                         await new Promise(resolve => setTimeout(resolve, 2000));
                         const newBalanceRes = await fetch(
-                            `http://localhost:3001/balance?address=${encodeURIComponent(data.creator.publicKey)}`,
+                            `http://127.0.0.1:3001/balance?address=${encodeURIComponent(data.creator.publicKey)}`,
                             { headers: { 'x-auth-token': process.env.NETWORK_SECRET }}
                         );
                         const { balance: newBalance } = await newBalanceRes.json();
@@ -142,7 +154,7 @@ Bun.serve({
                         console.log('Generated signature:', signature);
 
                         // Execute initial transaction
-                        const txResult = await fetch('http://localhost:2222/txn', {
+                        const txResult = await fetch(`${chain_ip}/txn`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -179,7 +191,12 @@ Bun.serve({
                                 success: true,
                                 contractId: contract.contractId,
                                 nextPaymentDate: contract.nextPaymentDate
-                            }, { headers: corsHeaders });
+                            }, { 
+                                headers: {
+                                    ...corsHeaders,
+                                    'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                                }
+                            });
                         } catch (error) {
                             console.error('Transaction response error:', error);
                             throw new Error(`Transaction failed: ${error.message}`);
@@ -196,7 +213,10 @@ Bun.serve({
                         error: error.message
                     }, { 
                         status: 400,
-                        headers: corsHeaders 
+                        headers: {
+                            ...corsHeaders,
+                            'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                        }
                     });
                 }
             }
@@ -301,8 +321,11 @@ Bun.serve({
         '/*': {
             OPTIONS: (req) => {
                 return new Response(null, {
-                    headers: corsHeaders,
-                    status: 204
+                    status: 204,
+                    headers: {
+                        ...corsHeaders,
+                        'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                    }
                 });
             }
         }
@@ -322,7 +345,7 @@ async function processBatchPayments(contracts) {
 
 async function generateContractToken(contract) {
     // Get user info from boost-users service
-    const userResponse = await fetch('http://localhost:2225/user/by-public-key', {
+    const userResponse = await fetch(`${users_ip}/user/by-public-key`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
