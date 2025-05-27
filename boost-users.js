@@ -146,7 +146,8 @@ class UserManager {
             throw new Error('Invalid credentials');
         }
     }
-
+    
+    
     async sendVerificationSMS(phoneNumber) {
         // Generate 6-digit code
         const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -162,6 +163,19 @@ class UserManager {
             // Here I'll integrate with an SMS service like Twilio
             // For demonstration, we'll just log the code
             console.log(`Verification code for ${phoneNumber}: ${code}`);
+            
+            const accountSid = 'your_account_sid_here';
+            const authToken = 'your_auth_token_here';
+            const client = require('twilio')(accountSid, authToken);
+            
+            client.messages
+                .create({
+                    body: `Verification code for ${phoneNumber}: ${code}`,
+                    from: 'whatsapp:+14155238886',
+                    to: 'whatsapp:+254708176114'
+                })
+                .then(message => console.log(message.sid))
+                .done();
             
             return true;
         } catch (error) {
@@ -484,7 +498,7 @@ class UserManager {
 }
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': 'http://localhost:5173',
+    'Access-Control-Allow-Origin': '*',//'http://localhost:3000',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
@@ -496,6 +510,7 @@ const userManager = new UserManager();
 // Start user management server
 console.log('Starting USER Management Server on 2225...');
 const server = Bun.serve({
+    hostname: '0.0.0.0',
     port: 2225,
     routes: {
       '/register': {
