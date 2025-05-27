@@ -41,8 +41,32 @@ export class SmartContractManager {
     getAllContracts() {
         return Array.from(this.contracts.values());
     }
-
+    
     getContractsByParticipant(address) {
+        console.log('Searching for address:', address);
+        console.log('Current contracts:', Array.from(this.contracts.values()));
+        
+        return Array.from(this.contracts.values()).filter(contract => {
+            // Check if address is creator
+            const isCreator = contract.creator.publicKey === address;
+            
+            // Check if address is in participants
+            const isParticipant = contract.participants.some(p => 
+                p.publicKey === address
+            );
+            
+            console.log('Contract check:', {
+                contractId: contract.contractId,
+                address,
+                isCreator,
+                isParticipant
+            });
+            
+            return isCreator || isParticipant;
+        });
+    }
+
+    getContractsByParticipantX(address) {
         return Array.from(this.contracts.values()).filter(
             contract => contract.participants.includes(address) || 
                        contract.creator === address

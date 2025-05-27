@@ -6,6 +6,8 @@ import jwt from 'jsonwebtoken';
 import { JWT_SECRET, ENCRYPTION_KEY } from './config.js';
 process.env.NETWORK_SECRET = 'test-secret-123';
 import { smartcron_ip, chain_ip, users_ip } from "./config.js";
+import { writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 
 
@@ -18,12 +20,82 @@ const corsHeaders = {
     'Access-Control-Max-Age': '86400'
 };
 
+function handleOptions(req) {
+    return new Response(null, {
+        status: 204,
+        headers: {
+            ...corsHeaders,
+            'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+        }
+    });
+}
+
+function saveContracts(contracts) {
+    try {
+        const filePath = './data/contracts.json';
+        const dataDir = dirname(filePath);
+
+        // Create data directory if it doesn't exist
+        if (!existsSync(dataDir)) {
+            Bun.write(dataDir, '');
+        }
+
+        // Convert contracts to saveable format
+        const data = contracts.map(contract => ({
+            ...contract,
+            // Convert Dates to timestamps
+            startDate: contract.startDate, //|| contract.startDate?.getTime() 
+            endDate:  contract.endDate, //|| contract.endDate?.getTime(),
+            nextPaymentDate:  contract.nextPaymentDate //|| contract.nextPaymentDate?.getTime(),
+        }));
+
+        writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+        console.log(`Saved ${data.length} contracts to ${filePath}`);
+    } catch (error) {
+        console.error('Error saving contracts:', error);
+    }
+}
+
+function loadContracts() {
+    try {
+        const filePath = './data/contracts.json';
+        if (!existsSync(filePath)) {
+            console.log('No existing contracts file found');
+            return [];
+        }
+
+        const data = JSON.parse(readFileSync(filePath, 'utf8'));
+        console.log(`Loaded ${data.length} contracts from ${filePath}`);
+        return data;
+    } catch (error) {
+        console.error('Error loading contracts:', error);
+        return [];
+    }
+}
+
 // Initialize contract manager
 const contractManager = new SmartContractManager();
+
+// Load existing contracts
+const savedContracts = loadContracts();
+savedContracts.forEach(contractData => {
+    try {
+        contractManager.createContract({
+            ...contractData,
+            // Convert timestamps back to Dates
+            startDate: new Date(contractData.startDate),
+            endDate: new Date(contractData.endDate),
+            nextPaymentDate: new Date(contractData.nextPaymentDate)
+        });
+    } catch (error) {
+        console.error('Error restoring contract:', error);
+    }
+});
 
 // Contract API Server
 console.log('Starting SMART CONTRACT Server on 2223...')
 Bun.serve({
+    hostname: '0.0.0.0',
     port: 2223,
     routes: {
         '/contract': {
@@ -243,6 +315,7 @@ Bun.serve({
         }' */
 
         '/contract/:id': {
+            OPTIONS: handleOptions,
           // Get contract details
             GET: async (req) => {
                 const id = req.params.id;
@@ -295,10 +368,54 @@ Bun.serve({
         },
 
         '/contracts/user/:address': {
+            OPTIONS: handleOptions,
             GET: async (req) => {
-                const address = req.params.address;
-                const contracts = contractManager.getContractsByParticipant(address);
-                return Response.json({ contracts }, { headers: corsHeaders });
+                try {
+                    const address = req.params.address;
+                    console.log('Searching contracts for address:', address);
+                    
+                    // Log all contracts for debugging
+                    const allContracts = contractManager.getAllContracts();
+                    console.log('All contracts:', allContracts.map(c => ({
+                        id: c.contractId,
+                        creator: c.creator.publicKey,
+                        participants: c.participants.map(p => p.publicKey),
+                        status: c.status
+                    })));
+                    
+                    const contracts = contractManager.getContractsByParticipant(address);
+                    console.log('Found contracts:', contracts);
+
+                    return Response.json(
+                        { 
+                            success: true,
+                            contracts,
+                            searchedAddress: address 
+                        }, 
+                        { 
+                            headers: {
+                                ...corsHeaders,
+                                'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                            }
+                        }
+                    );
+                } catch (error) {
+                    console.error('Error fetching contracts:', error);
+                    return Response.json(
+                        { 
+                            success: false,
+                            error: error.message,
+                            searchedAddress: req.params.address 
+                        }, 
+                        { 
+                            status: 400,
+                            headers: {
+                                ...corsHeaders,
+                                'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                            }
+                        }
+                    );
+                }
             }
         },
 
@@ -317,17 +434,32 @@ Bun.serve({
                 return Response.json(contract.getStatus(), { headers: corsHeaders });
             }
         },
-
-        '/*': {
-            OPTIONS: (req) => {
-                return new Response(null, {
-                    status: 204,
+        
+        '/debug/contracts': {
+            GET: async () => {
+                const allContracts = contractManager.getAllContracts();
+                return Response.json({
+                    success: true,
+                    count: allContracts.length,
+                    contracts: allContracts.map(c => ({
+                        id: c.contractId,
+                        creator: c.creator.publicKey,
+                        participants: c.participants.map(p => p.publicKey),
+                        status: c.status,
+                        amount: c.amount,
+                        nextPaymentDate: c.nextPaymentDate
+                    }))
+                }, {
                     headers: {
                         ...corsHeaders,
-                        'Access-Control-Allow-Origin': req.headers.get('Origin') || '*'
+                        'Access-Control-Allow-Origin': '*'
                     }
                 });
             }
+        },
+
+        '/*': {
+            OPTIONS: handleOptions
         }
     }
 });
@@ -389,13 +521,39 @@ setInterval(async () => {
                 Date.now() >= new Date(c.nextPaymentDate).getTime());
     console.log('Checking for scheduled payments...');
     console.log('Contracts:', contracts.map(contract => ({
-                    contractId: contract.contractId,
-                    creator: contract.creator.publicKey,
-                    participants: contract.participants.map(p => p.publicKey),
-                    amount: contract.amount,
-                    status: contract.status,
-                    nextPaymentDate: contract.nextPaymentDate,
-                    endDate: contract.endDate,
+        contractId: contract.contractId,
+        creator: contract.creator.publicKey,
+        participants: contract.participants.map(p => p.publicKey),
+        amount: contract.amount,
+        status: contract.status,
+        nextPaymentDate: contract.nextPaymentDate,
+        endDate: contract.endDate,
     })));
     await processBatchPayments(batchContracts);
+    
+    // Save contracts after processing payments
+    if (batchContracts.length > 0) {
+        saveContracts(contracts);
+    }
 }, 10000);
+
+// Add save interval (every 5 minutes)
+setInterval(() => {
+    const contracts = contractManager.getAllContracts();
+    saveContracts(contracts);
+}, 5 * 60 * 1000);
+
+// Add shutdown handlers
+process.on('SIGINT', () => {
+    console.log('Saving contracts before shutdown...');
+    const contracts = contractManager.getAllContracts();
+    saveContracts(contracts);
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('Saving contracts before shutdown...');
+    const contracts = contractManager.getAllContracts();
+    saveContracts(contracts);
+    process.exit(0);
+});
